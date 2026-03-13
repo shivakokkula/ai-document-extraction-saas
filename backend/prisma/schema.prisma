@@ -1,0 +1,271 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  owner
+  admin
+  member
+  viewer
+}
+
+enum Plan {
+  free
+  pro
+  enterprise
+}
+
+enum SubscriptionStatus {
+  active
+  canceled
+  past_due
+  trialing
+  incomplete
+  paused
+}
+
+enum DocumentStatus {
+  pending
+  queued
+  ocr_processing
+  ai_processing
+  completed
+  failed
+  archived
+}
+
+model Organization {
+  id               String   @id @default(uuid())
+  name             String
+  slug             String   @unique
+  logoUrl          String?
+  billingEmail     String?
+  plan             Plan     @default(free)
+  stripeCustomerId String?  @unique
+
+  users         User[]
+  subscriptions Subscription[]
+  documents     Document[]
+  usageRecords  UsageRecord[]
+  apiKeys       ApiKey[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([slug])
+  @@index([stripeCustomerId])
+  @@map("organizations")
+}
+
+model User {
+  id                 String    @id @default(uuid())
+  organizationId     String?
+  email              String    @unique
+  emailVerified      Boolean   @default(false)
+  emailVerifyToken   String?
+  emailVerifyExpires DateTime?
+  passwordHash       String?
+  role               UserRole  @default(member)
+  fullName           String?
+  avatarUrl          String?
+  isActive           Boolean   @default(true)
+  lastLoginAt        DateTime?
+  resetToken         String?
+  resetExpires       DateTime?
+  stripeCustomerId   String?   @unique
+
+  organization  Organization?  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  oauthAccounts OAuthAccount[]
+  refreshTokens RefreshToken[]
+  documents     Document[]
+  apiKeys       ApiKey[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([email])
+  @@index([organizationId])
+  @@index([resetToken])
+  @@map("users")
+}
+
+model OAuthAccount {
+  id             String    @id @default(uuid())
+  userId         String
+  provider       String
+  providerUserId String
+  accessToken    String?
+  refreshToken   String?
+  tokenExpiresAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  deviceInfo Json?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  organizationId       String
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  status               SubscriptionStatus
+  plan                 Plan
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  canceledAt           DateTime?
+  trialEnd             DateTime?
+  documentsPerMonth    Int                @default(10)
+  apiCallsPerMonth     Int                @default(100)
+  maxFileSizeMb        Int                @default(10)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([stripeSubscriptionId])
+  @@map("subscriptions")
+}
+
+model UsageRecord {
+  id                  String @id @default(uuid())
+  organizationId      String
+  periodStart         DateTime @db.Date
+  periodEnd           DateTime @db.Date
+  documentsProcessed  Int    @default(0)
+  pagesProcessed      Int    @default(0)
+  apiCallsMade        Int    @default(0)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, periodStart])
+  @@index([organizationId, periodStart])
+  @@map("usage_records")
+}
+
+model Document {
+  id               String         @id @default(uuid())
+  organizationId   String
+  uploadedBy       String?
+  originalFilename String
+  s3Key            String         @unique
+  s3Bucket         String
+  fileSizeBytes    BigInt
+  mimeType         String         @default("application/pdf")
+  pageCount        Int?
+  documentType     String?
+  status           DocumentStatus @default(pending)
+  errorMessage     String?
+  retryCount       Int            @default(0)
+  jobId            String?
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploader     User?               @relation(fields: [uploadedBy], references: [id], onDelete: SetNull)
+  extraction   DocumentExtraction?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  processedAt DateTime?
+  deletedAt   DateTime?
+
+  @@index([organizationId])
+  @@index([uploadedBy])
+  @@index([status])
+  @@index([documentType])
+  @@index([createdAt(sort: Desc)])
+  @@map("documents")
+}
+
+model DocumentExtraction {
+  id                    String  @id @default(uuid())
+  documentId            String  @unique
+  rawText               String?
+  ocrConfidence         Float?
+  ocrEngine             String?
+  extractedFields       Json    @default("{}")
+  extractionModel       String?
+  extractionConfidence  Float?
+  pageExtractions       Json?
+  vendorName            String?
+  invoiceNumber         String?
+  invoiceDate           DateTime?
+  dueDate               DateTime?
+  totalAmount           Decimal? @db.Decimal(15, 2)
+  currency              String?
+  taxAmount             Decimal? @db.Decimal(15, 2)
+  lineItems             Json?
+  accountNumber         String?
+  bankName              String?
+  statementPeriodStart  DateTime?
+  statementPeriodEnd    DateTime?
+  openingBalance        Decimal? @db.Decimal(15, 2)
+  closingBalance        Decimal? @db.Decimal(15, 2)
+  transactions          Json?
+  processingDurationMs  Int?
+  tokenCount            Int?
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([documentId])
+  @@index([vendorName])
+  @@index([invoiceDate])
+  @@map("document_extractions")
+}
+
+model ApiKey {
+  id             String    @id @default(uuid())
+  organizationId String
+  createdBy      String?
+  name           String
+  keyPrefix      String
+  keyHash        String    @unique
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  isActive       Boolean   @default(true)
+  scopes         String[]  @default(["documents:read", "documents:write"])
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User?        @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([keyHash])
+  @@map("api_keys")
+}

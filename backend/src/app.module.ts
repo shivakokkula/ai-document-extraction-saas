@@ -1,0 +1,62 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { BullModule } from '@nestjs/bullmq';
+import { TerminusModule } from '@nestjs/terminus';
+import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
+import { OrganizationsModule } from './modules/organizations/organizations.module';
+import { DocumentsModule } from './modules/documents/documents.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { QueueModule } from './modules/queue/queue.module';
+import { HealthController } from './modules/health/health.controller';
+import { PrismaModule } from './prisma/prisma.module';
+import configuration from './config/configuration';
+
+@Module({
+  imports: [
+    // Config
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [configuration],
+      envFilePath: ['.env'],
+    }),
+
+    // Rate limiting
+    ThrottlerModule.forRoot([
+      { ttl: 60000, limit: 200 }, // 200 req/min default
+    ]),
+
+    // Redis + BullMQ
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host: config.get('redis.host'),
+          port: config.get('redis.port'),
+          password: config.get('redis.password'),
+        },
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2000 },
+          removeOnComplete: { count: 1000, age: 86400 },
+          removeOnFail: { count: 5000, age: 604800 },
+        },
+      }),
+    }),
+
+    // Health checks
+    TerminusModule,
+
+    // App modules
+    PrismaModule,
+    AuthModule,
+    UsersModule,
+    OrganizationsModule,
+    DocumentsModule,
+    BillingModule,
+    QueueModule,
+  ],
+  controllers: [HealthController],
+})
+export class AppModule {}
