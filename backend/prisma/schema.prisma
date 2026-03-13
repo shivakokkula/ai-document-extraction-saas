@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   // Neon pooled connection (pgbouncer)
+  directUrl = env("DIRECT_URL")     // Neon direct connection (for migrations)
 }
 
 enum UserRole {
@@ -158,13 +159,13 @@ model Subscription {
 }
 
 model UsageRecord {
-  id                  String @id @default(uuid())
-  organizationId      String
-  periodStart         DateTime @db.Date
-  periodEnd           DateTime @db.Date
-  documentsProcessed  Int    @default(0)
-  pagesProcessed      Int    @default(0)
-  apiCallsMade        Int    @default(0)
+  id                 String   @id @default(uuid())
+  organizationId     String
+  periodStart        DateTime @db.Date
+  periodEnd          DateTime @db.Date
+  documentsProcessed Int      @default(0)
+  pagesProcessed     Int      @default(0)
+  apiCallsMade       Int      @default(0)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -210,32 +211,32 @@ model Document {
 }
 
 model DocumentExtraction {
-  id                    String  @id @default(uuid())
-  documentId            String  @unique
-  rawText               String?
-  ocrConfidence         Float?
-  ocrEngine             String?
-  extractedFields       Json    @default("{}")
-  extractionModel       String?
-  extractionConfidence  Float?
-  pageExtractions       Json?
-  vendorName            String?
-  invoiceNumber         String?
-  invoiceDate           DateTime?
-  dueDate               DateTime?
-  totalAmount           Decimal? @db.Decimal(15, 2)
-  currency              String?
-  taxAmount             Decimal? @db.Decimal(15, 2)
-  lineItems             Json?
-  accountNumber         String?
-  bankName              String?
-  statementPeriodStart  DateTime?
-  statementPeriodEnd    DateTime?
-  openingBalance        Decimal? @db.Decimal(15, 2)
-  closingBalance        Decimal? @db.Decimal(15, 2)
-  transactions          Json?
-  processingDurationMs  Int?
-  tokenCount            Int?
+  id                   String    @id @default(uuid())
+  documentId           String    @unique
+  rawText              String?
+  ocrConfidence        Float?
+  ocrEngine            String?
+  extractedFields      Json      @default("{}")
+  extractionModel      String?
+  extractionConfidence Float?
+  pageExtractions      Json?
+  vendorName           String?
+  invoiceNumber        String?
+  invoiceDate          DateTime?
+  dueDate              DateTime?
+  totalAmount          Decimal?  @db.Decimal(15, 2)
+  currency             String?
+  taxAmount            Decimal?  @db.Decimal(15, 2)
+  lineItems            Json?
+  accountNumber        String?
+  bankName             String?
+  statementPeriodStart DateTime?
+  statementPeriodEnd   DateTime?
+  openingBalance       Decimal?  @db.Decimal(15, 2)
+  closingBalance       Decimal?  @db.Decimal(15, 2)
+  transactions         Json?
+  processingDurationMs Int?
+  tokenCount           Int?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 

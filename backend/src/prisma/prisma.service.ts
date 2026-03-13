@@ -7,32 +7,24 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   constructor() {
     super({
-      log: [
-        { emit: 'event', level: 'query' },
-        { emit: 'stdout', level: 'error' },
-        { emit: 'stdout', level: 'warn' },
-      ],
+      // Neon serverless needs connection_limit=1 on the pooled URL
+      datasources: {
+        db: {
+          url: process.env.DATABASE_URL,
+        },
+      },
+      log: process.env.NODE_ENV === 'development'
+        ? [{ emit: 'stdout', level: 'query' }]
+        : [{ emit: 'stdout', level: 'error' }],
     });
   }
 
   async onModuleInit() {
     await this.$connect();
-    this.logger.log('Database connected');
+    this.logger.log('✅ Database connected (Neon)');
   }
 
   async onModuleDestroy() {
     await this.$disconnect();
-  }
-
-  async cleanDatabase() {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('cleanDatabase cannot be run in production');
-    }
-    const tableNames = Object.keys(this).filter(
-      (key) => !key.startsWith('_') && !key.startsWith('$'),
-    );
-    for (const tableName of tableNames) {
-      await this.$executeRawUnsafe(`TRUNCATE TABLE "${tableName}" CASCADE;`);
-    }
   }
 }

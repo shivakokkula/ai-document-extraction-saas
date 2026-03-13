@@ -1,0 +1,86 @@
+version: "1"
+
+# ─────────────────────────────────────────────────────────────
+# Render Blueprint
+# Deploy: https://dashboard.render.com/select-repo
+# Docs:   https://render.com/docs/blueprint-spec
+# ─────────────────────────────────────────────────────────────
+
+services:
+  # ── Backend API (NestJS) ─────────────────────────────────
+  - type: web
+    name: docuparsea-backend
+    runtime: node
+    rootDir: backend
+    region: oregon
+    plan: starter          # $7/month — upgrade to standard for prod
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npx prisma migrate deploy && node dist/main.js
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        sync: false        # Set in Render dashboard — use Neon connection string
+      - key: DIRECT_URL
+        sync: false        # Neon direct URL (for migrations)
+      - key: REDIS_URL
+        sync: false        # Upstash Redis URL
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRO_PRICE_ID
+        sync: false
+      - key: STRIPE_ENTERPRISE_PRICE_ID
+        sync: false
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: AI_SERVICE_URL
+        sync: false        # URL of docuparsea-ai-service below
+      - key: FRONTEND_URL
+        sync: false        # Your Vercel URL
+
+  # ── AI Service (FastAPI + OCR + LLM) ────────────────────
+  - type: web
+    name: docuparsea-ai-service
+    runtime: python
+    rootDir: ai-service
+    region: oregon
+    plan: standard         # Needs 2GB RAM for OCR — $25/month
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: OCR_ENGINE
+        value: tesseract    # Use tesseract on Render (lighter than PaddleOCR)

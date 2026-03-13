@@ -3,14 +3,12 @@ export default () => ({
   nodeEnv: process.env.NODE_ENV || 'development',
 
   database: {
-    url: process.env.DATABASE_URL,
+    url: process.env.DATABASE_URL,         // Neon pooled URL (pgbouncer)
+    directUrl: process.env.DIRECT_URL,     // Neon direct URL (migrations only)
   },
 
   redis: {
-    url: process.env.REDIS_URL,
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379', 10),
-    password: process.env.REDIS_PASSWORD,
+    url: process.env.REDIS_URL,            // Upstash Redis URL
   },
 
   jwt: {
@@ -32,7 +30,7 @@ export default () => ({
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
     s3Bucket: process.env.AWS_S3_BUCKET || 'docuparsea-uploads',
-    s3Endpoint: process.env.AWS_S3_ENDPOINT,
+    s3Endpoint: process.env.AWS_S3_ENDPOINT,   // Leave blank for real AWS S3
   },
 
   google: {

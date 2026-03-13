@@ -15,7 +15,6 @@ import configuration from './config/configuration';
 
 @Module({
   imports: [
-    // Config
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
@@ -23,32 +22,29 @@ import configuration from './config/configuration';
     }),
 
     // Rate limiting
-    ThrottlerModule.forRoot([
-      { ttl: 60000, limit: 200 }, // 200 req/min default
-    ]),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 200 }]),
 
-    // Redis + BullMQ
+    // Upstash Redis + BullMQ
+    // Upstash provides a standard Redis-compatible URL — BullMQ works out of the box
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         connection: {
-          host: config.get('redis.host'),
-          port: config.get('redis.port'),
-          password: config.get('redis.password'),
+          url: config.get('redis.url'),
+          // Upstash requires TLS
+          tls: config.get('nodeEnv') === 'production' ? {} : undefined,
+          maxRetriesPerRequest: null, // Required by BullMQ
         },
         defaultJobOptions: {
           attempts: 3,
           backoff: { type: 'exponential', delay: 2000 },
-          removeOnComplete: { count: 1000, age: 86400 },
-          removeOnFail: { count: 5000, age: 604800 },
+          removeOnComplete: { count: 500, age: 86400 },
+          removeOnFail: { count: 1000, age: 604800 },
         },
       }),
     }),
 
-    // Health checks
     TerminusModule,
-
-    // App modules
     PrismaModule,
     AuthModule,
     UsersModule,
