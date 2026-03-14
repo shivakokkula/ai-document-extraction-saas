@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
-  S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand,
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -16,14 +19,14 @@ export class UploadService {
     const endpoint = config.get('aws.s3Endpoint');
 
     this.s3 = new S3Client({
-      region: config.get('aws.region') || 'us-east-1',
+      region: config.get('aws.region') || 'ap-south-1',
       credentials: {
         accessKeyId: config.get('aws.accessKeyId')!,
         secretAccessKey: config.get('aws.secretAccessKey')!,
       },
       ...(endpoint && {
         endpoint,
-        forcePathStyle: true, // Required for MinIO
+        forcePathStyle: true,
       }),
     });
   }
@@ -33,14 +36,21 @@ export class UploadService {
       Bucket: this.bucket,
       Key: s3Key,
       ContentType: contentType,
+      // Do NOT include ChecksumAlgorithm — it adds CRC32 headers the browser
+      // cannot set, causing CORS preflight to fail
     });
+
     // URL expires in 15 minutes
-    return getSignedUrl(this.s3, command, { expiresIn: 900 });
+    return getSignedUrl(this.s3, command, {
+      expiresIn: 900,
+      // Disable checksum signing — required for direct browser uploads
+      unhoistableHeaders: new Set(['x-amz-checksum-crc32', 'x-amz-sdk-checksum-algorithm']),
+    });
   }
 
   async getPresignedDownloadUrl(s3Key: string): Promise<string> {
     const command = new GetObjectCommand({ Bucket: this.bucket, Key: s3Key });
-    return getSignedUrl(this.s3, command, { expiresIn: 3600 }); // 1 hour
+    return getSignedUrl(this.s3, command, { expiresIn: 3600 });
   }
 
   async deleteObject(s3Key: string): Promise<void> {

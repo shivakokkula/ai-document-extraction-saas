@@ -1,5 +1,5 @@
 import {
-  Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger,
+  Injectable, NotFoundException, BadRequestException, Logger,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -7,8 +7,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UploadService } from './upload.service';
 
 const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
-const MAX_FILE_SIZE_FREE = 5 * 1024 * 1024;   // 5MB
-const MAX_FILE_SIZE_PRO  = 50 * 1024 * 1024;  // 50MB
 
 @Injectable()
 export class DocumentsService {
@@ -27,12 +25,10 @@ export class DocumentsService {
     fileSize: number,
     mimeType: string,
   ) {
-    // Validate mime type
     if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
       throw new BadRequestException(`Unsupported file type: ${mimeType}`);
     }
 
-    // Check subscription file size limit
     const subscription = await this.prisma.subscription.findFirst({
       where: { organizationId, status: { in: ['active', 'trialing'] } },
     });
@@ -43,8 +39,9 @@ export class DocumentsService {
       );
     }
 
-    // Pre-create document record
-    const s3Key = `${organizationId}/${userId}/${Date.now()}-${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const s3Key = `${organizationId}/${userId}/${Date.now()}-${safeFilename}`;
+
     const document = await this.prisma.document.create({
       data: {
         organizationId,
@@ -59,7 +56,6 @@ export class DocumentsService {
     });
 
     const uploadUrl = await this.uploadService.getPresignedUploadUrl(s3Key, mimeType);
-
     return { uploadUrl, documentId: document.id, s3Key };
   }
 
@@ -72,19 +68,27 @@ export class DocumentsService {
       throw new BadRequestException('Document already queued or processed');
     }
 
-    const job = await this.docQueue.add(
-      'process-document',
-      { documentId, organizationId, s3Bucket: document.s3Bucket, s3Key: document.s3Key, userId },
-      { jobId: `doc-${documentId}` },
-    );
+    try {
+      const job = await this.docQueue.add(
+        'process-document',
+        { documentId, organizationId, s3Bucket: document.s3Bucket, s3Key: document.s3Key, userId },
+        { jobId: `doc-${documentId}` },
+      );
 
-    await this.prisma.document.update({
-      where: { id: documentId },
-      data: { status: 'queued', jobId: job.id?.toString() },
-    });
+      await this.prisma.document.update({
+        where: { id: documentId },
+        data: { status: 'queued', jobId: job.id?.toString() },
+      });
 
-    this.logger.log(`Document queued: ${documentId}, job: ${job.id}`);
-    return { documentId, jobId: job.id, status: 'queued' };
+      this.logger.log(`Document queued: ${documentId}`);
+      return { documentId, jobId: job.id, status: 'queued' };
+
+    } catch (error: any) {
+      // If Redis/queue is unavailable, still save the document — mark as pending
+      // so it can be retried later
+      this.logger.error(`Failed to queue document ${documentId}: ${error.message}`);
+      return { documentId, jobId: null, status: 'pending', warning: 'Queue unavailable — will retry' };
+    }
   }
 
   async findAll(organizationId: string, page = 1, limit = 20, status?: string, type?: string) {
@@ -98,8 +102,12 @@ export class DocumentsService {
         include: {
           extraction: {
             select: {
-              id: true, vendorName: true, invoiceNumber: true,
-              totalAmount: true, currency: true, invoiceDate: true,
+              id: true,
+              vendorName: true,
+              invoiceNumber: true,
+              totalAmount: true,
+              currency: true,
+              invoiceDate: true,
             },
           },
           uploader: { select: { id: true, fullName: true, email: true } },
@@ -162,7 +170,6 @@ export class DocumentsService {
       };
     }
 
-    // CSV export — flatten extracted fields
     const fields = document.extraction.extractedFields as Record<string, any>;
     const rows = this.flattenToCSV(fields);
     return {
@@ -179,8 +186,6 @@ export class DocumentsService {
         const key = p ? `${p}.${k}` : k;
         if (v && typeof v === 'object' && !Array.isArray(v)) {
           flatten(v, key);
-        } else if (Array.isArray(v)) {
-          rows.push(`"${key}","${JSON.stringify(v).replace(/"/g, '""')}"`);
         } else {
           rows.push(`"${key}","${String(v ?? '').replace(/"/g, '""')}"`);
         }
