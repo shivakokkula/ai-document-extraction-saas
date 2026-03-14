@@ -6,13 +6,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   private readonly logger = new Logger(PrismaService.name);
 
   constructor() {
+    // Do NOT pass datasources here — let Prisma read DATABASE_URL from .env automatically
     super({
-      // Neon serverless needs connection_limit=1 on the pooled URL
-      datasources: {
-        db: {
-          url: process.env.DATABASE_URL,
-        },
-      },
       log: process.env.NODE_ENV === 'development'
         ? [{ emit: 'stdout', level: 'query' }]
         : [{ emit: 'stdout', level: 'error' }],
@@ -21,7 +16,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   async onModuleInit() {
     await this.$connect();
-    this.logger.log('✅ Database connected (Neon)');
+    this.logger.log('✅ Database connected');
   }
 
   async onModuleDestroy() {
