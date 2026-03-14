@@ -1,4 +1,4 @@
-# Environment
+# Environment — never commit real secrets
 .env
 .env.local
 .env.production
@@ -9,6 +9,9 @@ dist/
 build/
 .next/
 out/
+
+# package-lock.json is COMMITTED (required for npm ci on Render)
+# Do NOT add package-lock.json here
 
 # Python
 __pycache__/
@@ -34,12 +37,9 @@ Thumbs.db
 .idea/
 *.swp
 
-# Docker
-.docker/
-
-# Prisma
+# Prisma generated client
 prisma/generated/
 
-# Uploads (local dev)
+# Uploads / temp
 uploads/
 tmp/
