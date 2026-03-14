@@ -1,10 +1,8 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Injectable, Logger } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { firstValueFrom } from 'rxjs';
 import { Decimal } from '@prisma/client/runtime/library';
 
 export interface DocumentJobPayload {
@@ -22,7 +20,6 @@ export class DocumentProcessor extends WorkerHost {
 
   constructor(
     private prisma: PrismaService,
-    private httpService: HttpService,
     private config: ConfigService,
   ) {
     super();
@@ -32,7 +29,6 @@ export class DocumentProcessor extends WorkerHost {
     const { documentId, organizationId, s3Bucket, s3Key, userId } = job.data;
     this.logger.log(`Processing document: ${documentId}`);
 
-    // Mark as OCR processing
     await this.prisma.document.update({
       where: { id: documentId },
       data: { status: 'ocr_processing' },
@@ -41,19 +37,21 @@ export class DocumentProcessor extends WorkerHost {
     try {
       await job.updateProgress(10);
 
-      // Call AI service
       const aiServiceUrl = this.config.get('aiService.url');
-      const { data: extraction } = await firstValueFrom(
-        this.httpService.post(`${aiServiceUrl}/api/v1/extract`, {
-          document_id: documentId,
-          s3_bucket: s3Bucket,
-          s3_key: s3Key,
-        }, { timeout: 120000 }), // 2 min timeout
-      );
+      const response = await fetch(`${aiServiceUrl}/api/v1/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document_id: documentId, s3_bucket: s3Bucket, s3_key: s3Key }),
+        signal: AbortSignal.timeout(120_000),
+      });
 
+      if (!response.ok) {
+        throw new Error(`AI service error: ${response.status} ${await response.text()}`);
+      }
+
+      const extraction = await response.json() as any;
       await job.updateProgress(80);
 
-      // Persist results in a transaction
       await this.prisma.$transaction(async (tx) => {
         const fields = extraction.extracted_fields || {};
 
@@ -63,12 +61,11 @@ export class DocumentProcessor extends WorkerHost {
             documentId,
             rawText: extraction.raw_text,
             ocrConfidence: extraction.ocr_confidence,
-            ocrEngine: extraction.ocr_engine || 'paddleocr',
+            ocrEngine: extraction.ocr_engine || 'tesseract',
             extractedFields: fields,
             extractionModel: extraction.extraction_model || 'claude-opus-4-6',
             processingDurationMs: extraction.processing_duration_ms,
             tokenCount: extraction.token_count,
-            // Denormalized fields for fast filtering
             vendorName: fields.vendor?.name ?? null,
             invoiceNumber: fields.invoice_number ?? null,
             invoiceDate: fields.invoice_date ? new Date(fields.invoice_date) : null,
@@ -96,7 +93,6 @@ export class DocumentProcessor extends WorkerHost {
           },
         });
 
-        // Increment usage
         const now = new Date();
         const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
         const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
@@ -120,10 +116,9 @@ export class DocumentProcessor extends WorkerHost {
       await job.updateProgress(100);
       this.logger.log(`Document completed: ${documentId}`);
 
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Document failed: ${documentId}`, error.message);
-
-      const isFinalAttempt = job.attemptsMade >= (job.opts.attempts || 3) - 1;
+      const isFinalAttempt = job.attemptsMade >= ((job.opts.attempts ?? 3) - 1);
       await this.prisma.document.update({
         where: { id: documentId },
         data: {
@@ -132,8 +127,7 @@ export class DocumentProcessor extends WorkerHost {
           retryCount: { increment: 1 },
         },
       });
-
-      throw error; // BullMQ will retry
+      throw error;
     }
   }
 }

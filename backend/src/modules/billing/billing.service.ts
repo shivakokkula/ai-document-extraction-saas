@@ -15,7 +15,7 @@ export class BillingService {
   private readonly logger = new Logger(BillingService.name);
 
   constructor(private prisma: PrismaService, private config: ConfigService) {
-    this.stripe = new Stripe(config.get('stripe.secretKey')!, { apiVersion: '2024-06-20' });
+    this.stripe = new Stripe(config.get('stripe.secretKey')!, { apiVersion: '2023-10-16' });
   }
 
   async getPlans() {
