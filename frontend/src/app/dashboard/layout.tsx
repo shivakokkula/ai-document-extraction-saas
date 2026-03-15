@@ -18,8 +18,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const handleLogout = async () => {
     const rt = localStorage.getItem('refresh_token') || '';
-    await logout(rt);
-    router.push('/auth/login');
+    try {
+      await logout(rt);
+    } finally {
+      router.push('/auth/login');
+    }
   };
 
   return (

@@ -18,8 +18,13 @@ export async function register(email: string, password: string, fullName?: strin
 }
 
 export async function logout(refreshToken: string) {
-  await apiClient.post('/auth/logout', { refreshToken });
-  localStorage.clear();
+  try {
+    await apiClient.post('/auth/logout', { refreshToken });
+  } catch {
+    // Ignore logout API errors to ensure client state clears.
+  } finally {
+    localStorage.clear();
+  }
 }
 
 export function getStoredTokens() {
