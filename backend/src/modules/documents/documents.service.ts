@@ -92,8 +92,11 @@ export class DocumentsService {
 
     if (processingMode === 'inline') {
       this.logger.warn(`Inline processing enabled; bypassing queue for document=${documentId}`);
-      await this.processInline(documentId, organizationId, document.s3Bucket, document.s3Key, userId);
-      return { documentId, status: 'completed', mode: 'inline' };
+      this.processInline(documentId, organizationId, document.s3Bucket, document.s3Key, userId)
+        .catch((error) => {
+          this.logger.error(`Inline processing background error: document=${documentId}, message=${error?.message}`);
+        });
+      return { documentId, status: 'processing', mode: 'inline' };
     }
 
     // Use a unique job id per enqueue so manual retries can run even when a previous

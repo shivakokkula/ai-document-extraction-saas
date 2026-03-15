@@ -73,6 +73,7 @@ export function useUpload() {
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.message || 'Upload failed');
+      qc.invalidateQueries({ queryKey: ['documents'] });
       setProgress(0);
     },
   });
@@ -106,6 +107,7 @@ export function useRetryDocument() {
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.message || 'Failed to queue document');
+      qc.invalidateQueries({ queryKey: ['documents'] });
     },
   });
 }
