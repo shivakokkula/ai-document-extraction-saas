@@ -15,3 +15,13 @@ async def pdf_to_images(pdf_bytes: bytes, dpi: int = 200) -> list[bytes]:
         images.append(buf.getvalue())
     doc.close()
     return images
+
+
+async def pdf_extract_text_pages(pdf_bytes: bytes) -> list[str]:
+    """Extract selectable text from each PDF page (fast path for digital PDFs)."""
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    texts: list[str] = []
+    for page in doc:
+        texts.append((page.get_text("text") or "").strip())
+    doc.close()
+    return texts

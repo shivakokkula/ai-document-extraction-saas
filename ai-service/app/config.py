@@ -1,17 +1,22 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    anthropic_api_key: str = ""
+    gemini_api_key: str = ""
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     aws_region: str = "ap-south-1"
     aws_s3_endpoint: str = ""
     redis_url: str = "redis://localhost:6379"
     ocr_engine: str = "paddleocr"   # or 'tesseract'
-    llm_model: str = "claude-opus-4-6"
+    llm_model: str = "gemini-2.5-flash"
     log_level: str = "INFO"
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(
+        # Support both:
+        # 1) ai-service/.env (service-local env)
+        # 2) project-root .env when running ai-service from its folder
+        env_file=(".env", "../.env"),
+        extra="ignore",
+    )
 
 settings = Settings()

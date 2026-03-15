@@ -3,6 +3,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
+import { Socket } from 'net';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -47,7 +48,15 @@ async function bootstrap() {
   }
 
   const port = process.env.PORT || 4000;
-  await app.listen(port);
+  const server = await app.listen(port);
+
+  server.on('clientError', (err: NodeJS.ErrnoException, socket: Socket) => {
+    if (err.code === 'ECONNRESET' || !socket.writable) {
+      return;
+    }
+
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+  });
   Logger.log(`🚀 Backend running on: http://localhost:${port}/api/v1`, 'Bootstrap');
 }
 

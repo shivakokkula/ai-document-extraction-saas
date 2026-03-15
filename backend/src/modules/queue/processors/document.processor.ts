@@ -27,7 +27,12 @@ export class DocumentProcessor extends WorkerHost {
 
   async process(job: Job<DocumentJobPayload>): Promise<void> {
     const { documentId, organizationId, s3Bucket, s3Key, userId } = job.data;
-    this.logger.log(`Processing document: ${documentId}`);
+    this.logger.log(
+      `Processing document: id=${documentId}, jobId=${job.id}, attemptsMade=${job.attemptsMade}, maxAttempts=${job.opts.attempts ?? 3}`,
+    );
+    this.logger.debug(
+      `Document payload: org=${organizationId}, user=${userId}, bucket=${s3Bucket}, key=${s3Key}`,
+    );
 
     await this.prisma.document.update({
       where: { id: documentId },
@@ -38,6 +43,7 @@ export class DocumentProcessor extends WorkerHost {
       await job.updateProgress(10);
 
       const aiServiceUrl = this.config.get('aiService.url');
+      this.logger.debug(`Calling AI service for ${documentId}: ${aiServiceUrl}/api/v1/extract`);
       const response = await fetch(`${aiServiceUrl}/api/v1/extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -46,10 +52,17 @@ export class DocumentProcessor extends WorkerHost {
       });
 
       if (!response.ok) {
-        throw new Error(`AI service error: ${response.status} ${await response.text()}`);
+        const errorBody = await response.text();
+        this.logger.error(
+          `AI service failed for ${documentId}: status=${response.status}, body=${errorBody.slice(0, 500)}`,
+        );
+        throw new Error(`AI service error: ${response.status} ${errorBody}`);
       }
 
       const extraction = await response.json() as any;
+      this.logger.debug(
+        `AI extraction received for ${documentId}: docType=${extraction.document_type}, pages=${extraction.page_count}, tokens=${extraction.token_count}`,
+      );
       await job.updateProgress(80);
 
       await this.prisma.$transaction(async (tx) => {
@@ -63,7 +76,7 @@ export class DocumentProcessor extends WorkerHost {
             ocrConfidence: extraction.ocr_confidence,
             ocrEngine: extraction.ocr_engine || 'tesseract',
             extractedFields: fields,
-            extractionModel: extraction.extraction_model || 'claude-opus-4-6',
+            extractionModel: extraction.extraction_model || 'gemini-2.5-flash',
             processingDurationMs: extraction.processing_duration_ms,
             tokenCount: extraction.token_count,
             vendorName: fields.vendor?.name ?? null,
@@ -117,7 +130,9 @@ export class DocumentProcessor extends WorkerHost {
       this.logger.log(`Document completed: ${documentId}`);
 
     } catch (error: any) {
-      this.logger.error(`Document failed: ${documentId}`, error.message);
+      this.logger.error(
+        `Document failed: id=${documentId}, jobId=${job.id}, attemptsMade=${job.attemptsMade}, message=${error?.message}`,
+      );
       const isFinalAttempt = job.attemptsMade >= ((job.opts.attempts ?? 3) - 1);
       await this.prisma.document.update({
         where: { id: documentId },

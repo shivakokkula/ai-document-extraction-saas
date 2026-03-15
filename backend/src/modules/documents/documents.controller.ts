@@ -36,6 +36,13 @@ export class DocumentsController {
     );
   }
 
+  @Post(':id/retry')
+  @UseGuards(SubscriptionGuard)
+  @ApiOperation({ summary: 'Retry processing for a pending/failed document' })
+  retryProcessing(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.documentsService.triggerProcessing(id, user.organizationId, user.id);
+  }
+
   @Get()
   @ApiOperation({ summary: 'List documents with pagination' })
   @ApiQuery({ name: 'page', required: false, type: Number })

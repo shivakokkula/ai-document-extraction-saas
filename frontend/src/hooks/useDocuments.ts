@@ -53,8 +53,14 @@ export function useUpload() {
         mimeType: file.type,
       });
 
-      // Step 2: Upload directly to S3
-      await uploadToS3(uploadUrl, file, setProgress);
+      try {
+        // Step 2: Upload directly to S3
+        await uploadToS3(uploadUrl, file, setProgress);
+      } catch (error) {
+        // Avoid leaving orphan "pending" rows behind when browser-to-S3 upload fails.
+        await apiClient.delete(`/documents/${documentId}`).catch(() => undefined);
+        throw error;
+      }
 
       // Step 3: Trigger processing
       return apiClient.post<any>('/documents', { documentId });
@@ -79,11 +85,27 @@ async function uploadToS3(url: string, file: File, onProgress: (p: number) => vo
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };
-    xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error('S3 upload failed'));
-    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.onload = () => xhr.status === 200
+      ? resolve()
+      : reject(new Error(`S3 upload failed (${xhr.status})`));
+    xhr.onerror = () => reject(new Error('Upload blocked or failed. Check S3 CORS for localhost:3000.'));
     xhr.open('PUT', url);
     xhr.setRequestHeader('Content-Type', file.type);
     xhr.send(file);
+  });
+}
+
+export function useRetryDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post(`/documents/${id}/retry`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['documents'] });
+      toast.success('Document queued for processing');
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.message || 'Failed to queue document');
+    },
   });
 }
 

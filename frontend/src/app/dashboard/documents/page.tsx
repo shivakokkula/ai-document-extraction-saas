@@ -1,9 +1,9 @@
 'use client';
 import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { useDocuments, useUpload, useDeleteDocument } from '@/hooks/useDocuments';
+import { useDocuments, useUpload, useDeleteDocument, useRetryDocument } from '@/hooks/useDocuments';
 import Link from 'next/link';
-import { Upload, FileText, Trash2, Download } from 'lucide-react';
+import { Upload, FileText, Trash2, Download, RotateCcw } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 
 export default function DocumentsPage() {
@@ -11,6 +11,7 @@ export default function DocumentsPage() {
   const { data, isLoading } = useDocuments(page, 20);
   const { mutate: upload, isPending, progress } = useUpload();
   const { mutate: deleteDoc } = useDeleteDocument();
+  const { mutate: retryDoc } = useRetryDocument();
 
   const onDrop = useCallback((accepted: File[]) => {
     accepted.forEach(file => upload(file));
@@ -94,6 +95,12 @@ export default function DocumentsPage() {
                 <td className="px-4 py-3 text-slate-500">{new Date(doc.createdAt).toLocaleDateString()}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1">
+                    {(doc.status === 'pending' || doc.status === 'failed') && (
+                      <button onClick={() => retryDoc(doc.id)} title="Retry processing"
+                        className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors">
+                        <RotateCcw size={15} />
+                      </button>
+                    )}
                     {doc.status === 'completed' && <>
                       <button onClick={() => handleExport(doc.id, 'json')} title="Export JSON"
                         className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">

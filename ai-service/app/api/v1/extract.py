@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
 import structlog
+import traceback
 
 from app.services.extractor import DocumentExtractionPipeline
 
@@ -17,6 +18,13 @@ class ExtractRequest(BaseModel):
 
 @router.post("")
 async def extract_document(req: ExtractRequest):
+    logger.info(
+        "extraction_request_received",
+        document_id=req.document_id,
+        s3_bucket=req.s3_bucket,
+        s3_key=req.s3_key,
+        hint_type=req.hint_type,
+    )
     try:
         result = await pipeline.process(
             s3_bucket=req.s3_bucket,
@@ -24,7 +32,19 @@ async def extract_document(req: ExtractRequest):
             document_id=req.document_id,
             hint_type=req.hint_type,
         )
+        logger.info(
+            "extraction_request_completed",
+            document_id=req.document_id,
+            document_type=result.document_type,
+            pages=result.page_count,
+            tokens=result.token_count,
+        )
         return result.model_dump()
     except Exception as e:
-        logger.error("extraction_failed", document_id=req.document_id, error=str(e))
+        logger.error(
+            "extraction_failed",
+            document_id=req.document_id,
+            error=str(e),
+            traceback=traceback.format_exc(),
+        )
         raise HTTPException(status_code=500, detail=str(e))

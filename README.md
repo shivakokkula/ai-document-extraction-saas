@@ -1,6 +1,6 @@
 # DocuParse AI — Production SaaS
 
-AI-powered document extraction. Upload PDFs (invoices, receipts, bank statements) → get structured JSON via OCR + Claude AI.
+AI-powered document extraction. Upload PDFs (invoices, receipts, bank statements) → get structured JSON via OCR + Gemini.
 
 ---
 
@@ -133,20 +133,20 @@ AWS_S3_ENDPOINT=          # leave blank for real AWS
 
 ---
 
-### STEP 5 — Anthropic API Key (Claude AI)
+### STEP 5 — Gemini API Key
 
 **What it is:** Powers the LLM extraction — reads OCR text and returns structured JSON.
 
-1. Go to → [console.anthropic.com](https://console.anthropic.com) → Sign up
+1. Go to → [aistudio.google.com](https://aistudio.google.com) → Sign in
 2. Click **API Keys** in the left sidebar
 3. Click **Create Key**
    - Name: `docuparsea`
 4. Copy the key (shown only once — save it!)
-   → paste as `ANTHROPIC_API_KEY` in `ai-service/.env`
+   → paste as `GEMINI_API_KEY` in `ai-service/.env`
 
 Your value will look like:
 ```env
-ANTHROPIC_API_KEY="sk-ant-api03-..."
+GEMINI_API_KEY="AIza..."
 ```
 
 > 💡 Add $5 credit to start. Each document extraction costs ~$0.01-0.03.
@@ -347,7 +347,7 @@ Open [http://localhost:3000](http://localhost:3000) — you should see the login
    - **Build Command:** `apt-get update && apt-get install -y tesseract-ocr tesseract-ocr-eng poppler-utils libgl1 && pip install -r requirements.txt`
    - **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
    - **Plan:** Starter ($7/mo)
-3. Add env vars: `ANTHROPIC_API_KEY`, all `AWS_*`, `OCR_ENGINE=tesseract`
+3. Add env vars: `GEMINI_API_KEY`, all `AWS_*`, `OCR_ENGINE=tesseract`
 4. Copy deployed URL
 
 #### 12c. Update Backend with AI Service URL

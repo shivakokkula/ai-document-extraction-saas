@@ -19,10 +19,13 @@ class TesseractOCRService:
         words, confidences = [], []
         for i, word in enumerate(data["text"]):
             word = word.strip()
-            conf = int(data["conf"][i])
+            try:
+                conf = float(data["conf"][i])
+            except (TypeError, ValueError):
+                conf = -1
             if word and conf > 0:
                 words.append(word)
-                confidences.append(conf / 100.0)
+                confidences.append(min(conf, 100.0) / 100.0)
 
         text = " ".join(words)
         confidence = sum(confidences) / len(confidences) if confidences else 0.0

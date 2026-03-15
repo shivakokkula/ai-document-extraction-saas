@@ -28,20 +28,25 @@ import configuration from './config/configuration';
     // Upstash provides a standard Redis-compatible URL — BullMQ works out of the box
     BullModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        connection: {
-          url: config.get('redis.url'),
-          // Upstash requires TLS
-          tls: config.get('nodeEnv') === 'production' ? {} : undefined,
-          maxRetriesPerRequest: null, // Required by BullMQ
-        },
-        defaultJobOptions: {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 2000 },
-          removeOnComplete: { count: 500, age: 86400 },
-          removeOnFail: { count: 1000, age: 604800 },
-        },
-      }),
+      useFactory: (config: ConfigService) => {
+        const redisUrl = config.get<string>('redis.url') || '';
+        const usesTls = redisUrl.startsWith('rediss://');
+
+        return {
+          connection: {
+            url: redisUrl,
+            // Upstash URLs use rediss:// and require TLS in every environment.
+            tls: usesTls ? {} : undefined,
+            maxRetriesPerRequest: null, // Required by BullMQ
+          },
+          defaultJobOptions: {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 2000 },
+            removeOnComplete: { count: 500, age: 86400 },
+            removeOnFail: { count: 1000, age: 604800 },
+          },
+        };
+      },
     }),
 
     TerminusModule,
