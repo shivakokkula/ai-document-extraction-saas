@@ -11,6 +11,7 @@ type DetailPageProps = {
 };
 
 const ACTIVE_STATUSES = new Set(['pending', 'queued', 'ocr_processing', 'ai_processing']);
+const STEP_ORDER = ['queued', 'ocr_processing', 'ai_processing', 'completed'] as const;
 const statusLabel = (status?: string) => {
   switch (status) {
     case 'pending': return 'Pending';
@@ -32,6 +33,13 @@ export default function DocumentDetailPage({ params }: DetailPageProps) {
   const currentStatus = status?.status ?? document?.status;
   const extraction = document?.extraction;
   const fields = extraction?.extractedFields as Record<string, unknown> | undefined;
+  const currentStepIndex = STEP_ORDER.indexOf((currentStatus as typeof STEP_ORDER[number]) ?? 'queued');
+  const steps = [
+    { key: 'queued', label: 'Queued', detail: 'Request received and scheduled for processing.' },
+    { key: 'ocr_processing', label: 'Text Extraction', detail: 'Reading PDF text or OCR from images.' },
+    { key: 'ai_processing', label: 'AI Extraction', detail: 'Sending text/images to the model and parsing JSON.' },
+    { key: 'completed', label: 'Completed', detail: 'Structured fields are ready.' },
+  ];
 
   useEffect(() => {
     if (status?.status === 'completed' && !document?.extraction) {
@@ -117,9 +125,30 @@ export default function DocumentDetailPage({ params }: DetailPageProps) {
             {currentStatus === 'failed'
               ? 'Parsing failed. Check the error above and retry after fixing the AI service or document input.'
               : ACTIVE_STATUSES.has(currentStatus ?? '')
-                ? `Processing in progress: ${statusLabel(currentStatus)}. We are working on it now.`
+                ? `Processing in progress: ${statusLabel(currentStatus)}. You can leave this page; it will update when done.`
                 : 'This document has not been parsed yet. Once processing completes, extracted fields will appear here.'}
           </p>
+          <div className="mt-4 space-y-3">
+            {steps.map((step, index) => {
+              const isDone = currentStatus === 'completed' || index < currentStepIndex;
+              const isActive = index === currentStepIndex && currentStatus !== 'failed';
+              return (
+                <div key={step.key} className="flex items-start gap-3">
+                  <span className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border text-xs ${
+                    isDone ? 'border-green-500 bg-green-100 text-green-700'
+                      : isActive ? 'border-amber-400 bg-amber-50 text-amber-700'
+                        : 'border-slate-300 bg-white text-slate-400'
+                  }`}>
+                    {isDone ? '✓' : isActive ? '•' : '–'}
+                  </span>
+                  <div>
+                    <p className={`text-sm font-medium ${isDone ? 'text-slate-900' : 'text-slate-600'}`}>{step.label}</p>
+                    <p className="text-xs text-slate-500">{step.detail}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

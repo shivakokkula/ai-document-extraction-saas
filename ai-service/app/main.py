@@ -5,6 +5,7 @@ import structlog
 import time
 
 from app.api.v1.router import router as v1_router
+from app.services.llm.gemini_service import GeminiExtractionService
 
 logger = structlog.get_logger()
 
@@ -38,6 +39,12 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 app.include_router(v1_router, prefix="/api/v1")
+
+_llm_service = GeminiExtractionService()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await _llm_service.aclose()
 
 @app.get("/health")
 def health():

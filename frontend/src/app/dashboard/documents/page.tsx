@@ -4,7 +4,6 @@ import { useDropzone } from 'react-dropzone';
 import { useDocuments, useUpload, useDeleteDocument, useRetryDocument } from '@/hooks/useDocuments';
 import Link from 'next/link';
 import { Upload, FileText, Trash2, Download, RotateCcw } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
 
 export default function DocumentsPage() {
   const [page, setPage] = useState(1);
@@ -149,7 +148,7 @@ export default function DocumentsPage() {
                         }}
                         title="Retry processing"
                         disabled={blockActions}
-                        className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         {retryingId === doc.id ? (
                           <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
@@ -160,16 +159,16 @@ export default function DocumentsPage() {
                     )}
                     {doc.status === 'completed' && <>
                       <button onClick={() => handleExport(doc.id, 'json')} title="Export JSON" disabled={blockActions}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                         <Download size={15} />
                       </button>
                       <button onClick={() => handleExport(doc.id, 'csv')} title="Export CSV" disabled={blockActions}
-                        className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors text-xs font-medium">
+                        className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed">
                         CSV
                       </button>
                     </>}
                     <button onClick={() => deleteDoc(doc.id)} title="Delete" disabled={blockActions}
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors">
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                       <Trash2 size={15} />
                     </button>
                   </div>

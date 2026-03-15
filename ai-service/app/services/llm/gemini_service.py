@@ -4,6 +4,7 @@ import os
 
 import httpx
 import asyncio
+from typing import Optional
 
 from app.config import settings
 from app.models.document_types import EXTRACTION_SCHEMAS
@@ -22,6 +23,16 @@ class GeminiExtractionService:
         self.url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         )
+        self._client: Optional[httpx.AsyncClient] = None
+
+    def _get_client(self, timeout: float) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=timeout)
+        return self._client
+
+    async def aclose(self):
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
 
     async def extract(self, raw_text: str, document_type: str, images: list[bytes]):
         if not self.api_key:
@@ -65,28 +76,28 @@ class GeminiExtractionService:
 
         timeout = float(os.getenv("LLM_HTTP_TIMEOUT", "420"))
         max_retries = int(os.getenv("LLM_HTTP_RETRIES", "2"))
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            last_error = None
-            for attempt in range(max_retries + 1):
-                try:
-                    response = await client.post(
-                        self.url,
-                        headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
-                        json=payload,
-                    )
-                    response.raise_for_status()
-                    break
-                except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
-                    last_error = e
-                except httpx.HTTPStatusError as e:
-                    last_error = e
-                    status = e.response.status_code
-                    if status not in (408, 429, 500, 502, 503, 504):
-                        raise
+        client = self._get_client(timeout)
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                response = await client.post(
+                    self.url,
+                    headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
+                    json=payload,
+                )
+                response.raise_for_status()
+                break
+            except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                last_error = e
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                status = e.response.status_code
+                if status not in (408, 429, 500, 502, 503, 504):
+                    raise
 
-                if attempt >= max_retries:
-                    raise last_error
-                await asyncio.sleep(2 * (attempt + 1))
+            if attempt >= max_retries:
+                raise last_error
+            await asyncio.sleep(2 * (attempt + 1))
 
         data = response.json()
         candidates = data.get("candidates") or []
@@ -137,13 +148,12 @@ class GeminiExtractionService:
                         "responseMimeType": "application/json",
                     },
                 }
-                async with httpx.AsyncClient(timeout=timeout) as fix_client:
-                    fix_response = await fix_client.post(
-                        self.url,
-                        headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
-                        json=fix_payload,
-                    )
-                    fix_response.raise_for_status()
+                fix_response = await client.post(
+                    self.url,
+                    headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
+                    json=fix_payload,
+                )
+                fix_response.raise_for_status()
                 fix_data = fix_response.json()
                 fix_parts_out = (fix_data.get("candidates") or [])[0].get("content", {}).get("parts", [])
                 fix_raw = "".join(part.get("text", "") for part in fix_parts_out).strip()

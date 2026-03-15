@@ -1,5 +1,5 @@
 import {
-  Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger,
+  Injectable, NotFoundException, BadRequestException, Logger,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -9,8 +9,6 @@ import { UploadService } from './upload.service';
 import { Decimal } from '@prisma/client/runtime/library';
 
 const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
-const MAX_FILE_SIZE_FREE = 5 * 1024 * 1024;   // 5MB
-const MAX_FILE_SIZE_PRO  = 50 * 1024 * 1024;  // 50MB
 
 @Injectable()
 export class DocumentsService {
@@ -92,7 +90,7 @@ export class DocumentsService {
 
     if (processingMode === 'inline') {
       this.logger.warn(`Inline processing enabled; bypassing queue for document=${documentId}`);
-      this.processInline(documentId, organizationId, document.s3Bucket, document.s3Key, userId)
+      this.processInline(documentId, organizationId, document.s3Bucket, document.s3Key)
         .catch((error) => {
           this.logger.error(`Inline processing background error: document=${documentId}, message=${error?.message}`);
         });
@@ -129,7 +127,6 @@ export class DocumentsService {
     organizationId: string,
     s3Bucket: string,
     s3Key: string,
-    userId: string,
   ) {
     await this.prisma.document.update({
       where: { id: documentId },

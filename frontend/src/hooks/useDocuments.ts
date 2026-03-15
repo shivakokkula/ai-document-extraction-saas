@@ -6,8 +6,9 @@ export function useDocuments(page = 1, limit = 20, status?: string, poll = false
   return useQuery({
     queryKey: ['documents', page, limit, status],
     queryFn: () => apiClient.get<any>('/documents', { page, limit, status }),
-    staleTime: 30_000,
+    staleTime: poll ? 0 : 30_000,
     refetchInterval: poll ? 3000 : false,
+    refetchOnWindowFocus: poll,
   });
 }
 

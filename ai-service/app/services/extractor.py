@@ -80,15 +80,20 @@ class DocumentExtractionPipeline:
         # Step 2: Convert input to image pages (supports PDFs and uploaded images)
         is_pdf = False
         pdf_raw_text = ""
-        dpi = int(os.getenv("PDF_DPI", "300"))
+        dpi = int(os.getenv("PDF_DPI", "200"))
+        skip_images_when_text = os.getenv("SKIP_PDF_IMAGES_WHEN_TEXT", "true").lower() == "true"
         if _is_pdf_bytes(file_bytes):
             is_pdf = True
             log.info("pipeline.input_detected", kind="pdf")
-            images = await pdf_to_images(file_bytes, dpi=dpi)
             # Fast path: for digital PDFs, extract text directly (no OCR dependency).
             text_pages = await pdf_extract_text_pages(file_bytes)
             pdf_raw_text = "\n\n--- PAGE BREAK ---\n\n".join(t for t in text_pages if t)
             log.info("pipeline.pdf_text_extracted", chars=len(pdf_raw_text), pages_with_text=sum(1 for t in text_pages if t))
+            if skip_images_when_text and len(pdf_raw_text.strip()) >= 50:
+                images = []
+                log.info("pipeline.pdf_images_skipped", reason="text_present")
+            else:
+                images = await pdf_to_images(file_bytes, dpi=dpi)
         elif _is_image_key(s3_key):
             log.info("pipeline.input_detected", kind="image")
             images = [_convert_image_to_jpeg_bytes(file_bytes)]
@@ -96,16 +101,21 @@ class DocumentExtractionPipeline:
             # Fallback: attempt PDF first, then image
             try:
                 is_pdf = True
-                images = await pdf_to_images(file_bytes, dpi=dpi)
-                log.info("pipeline.input_detected", kind="pdf_fallback")
                 text_pages = await pdf_extract_text_pages(file_bytes)
                 pdf_raw_text = "\n\n--- PAGE BREAK ---\n\n".join(t for t in text_pages if t)
                 log.info("pipeline.pdf_text_extracted", chars=len(pdf_raw_text), pages_with_text=sum(1 for t in text_pages if t))
+                if skip_images_when_text and len(pdf_raw_text.strip()) >= 50:
+                    images = []
+                    log.info("pipeline.input_detected", kind="pdf_fallback")
+                    log.info("pipeline.pdf_images_skipped", reason="text_present")
+                else:
+                    images = await pdf_to_images(file_bytes, dpi=dpi)
+                    log.info("pipeline.input_detected", kind="pdf_fallback")
             except Exception:
                 images = [_convert_image_to_jpeg_bytes(file_bytes)]
                 log.info("pipeline.input_detected", kind="image_fallback")
 
-        if not images:
+        if not images and not (is_pdf and pdf_raw_text.strip()):
             raise RuntimeError("No pages/images were produced from input document")
         log.info("pipeline.converted", pages=len(images))
 
@@ -155,12 +165,19 @@ class DocumentExtractionPipeline:
         log.info("pipeline.classified", doc_type=doc_type)
 
         # Step 5: LLM structured extraction
-        # Reduce payload size for long documents to avoid LLM timeouts.
-        max_images = 1 if len(raw_text) > 10000 else 3
+        # If we have sufficient text, send text-only to reduce latency and cost.
+        min_text_for_text_only = int(os.getenv("LLM_TEXT_ONLY_THRESHOLD", "2000"))
+        if len(raw_text.strip()) >= min_text_for_text_only:
+            images_for_llm: list[bytes] = []
+        else:
+            # Reduce payload size for long documents to avoid LLM timeouts.
+            max_images = 1 if len(raw_text) > 10000 else 3
+            images_for_llm = images[:max_images]
+
         fields, token_count = await self.llm.extract(
             raw_text=raw_text,
             document_type=doc_type,
-            images=images[:max_images],
+            images=images_for_llm,
         )
         log.info("pipeline.llm_done", tokens=token_count)
 
