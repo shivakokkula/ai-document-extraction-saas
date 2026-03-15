@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect } from 'react';
 import { useDocument, useDocumentStatus } from '@/hooks/useDocuments';
 
 type DetailPageProps = {
@@ -10,16 +11,33 @@ type DetailPageProps = {
 };
 
 const ACTIVE_STATUSES = new Set(['pending', 'queued', 'ocr_processing', 'ai_processing']);
+const statusLabel = (status?: string) => {
+  switch (status) {
+    case 'pending': return 'Pending';
+    case 'queued': return 'Queued';
+    case 'ocr_processing': return 'OCR Processing';
+    case 'ai_processing': return 'AI Extraction';
+    case 'completed': return 'Completed';
+    case 'failed': return 'Failed';
+    default: return status ?? 'Unknown';
+  }
+};
 
 export default function DocumentDetailPage({ params }: DetailPageProps) {
   const { id } = params;
-  const { data: document, isLoading, isError } = useDocument(id);
+  const { data: document, isLoading, isError, refetch } = useDocument(id);
   const liveStatusEnabled = ACTIVE_STATUSES.has(document?.status ?? '');
   const { data: status } = useDocumentStatus(id, liveStatusEnabled);
 
   const currentStatus = status?.status ?? document?.status;
   const extraction = document?.extraction;
   const fields = extraction?.extractedFields as Record<string, unknown> | undefined;
+
+  useEffect(() => {
+    if (status?.status === 'completed' && !document?.extraction) {
+      refetch();
+    }
+  }, [status?.status, document?.extraction, refetch]);
 
   if (isLoading) {
     return (
@@ -61,7 +79,10 @@ export default function DocumentDetailPage({ params }: DetailPageProps) {
               ? 'bg-red-100 text-red-700'
               : 'bg-amber-100 text-amber-700'
         }`}>
-          {currentStatus}
+          {ACTIVE_STATUSES.has(currentStatus ?? '') && (
+            <span className="mr-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          )}
+          {statusLabel(currentStatus)}
         </span>
       </div>
 
@@ -95,7 +116,9 @@ export default function DocumentDetailPage({ params }: DetailPageProps) {
           <p className="mt-2 text-sm text-slate-500">
             {currentStatus === 'failed'
               ? 'Parsing failed. Check the error above and retry after fixing the AI service or document input.'
-              : 'This document has not been parsed yet. Once processing completes, extracted fields will appear here.'}
+              : ACTIVE_STATUSES.has(currentStatus ?? '')
+                ? `Processing in progress: ${statusLabel(currentStatus)}. We are working on it now.`
+                : 'This document has not been parsed yet. Once processing completes, extracted fields will appear here.'}
           </p>
         </div>
       )}

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useDocuments, useUpload, useDeleteDocument, useRetryDocument } from '@/hooks/useDocuments';
 import Link from 'next/link';
@@ -8,10 +8,31 @@ import { apiClient } from '@/lib/api-client';
 
 export default function DocumentsPage() {
   const [page, setPage] = useState(1);
-  const { data, isLoading } = useDocuments(page, 20);
+  const [poll, setPoll] = useState(true);
+  const { data, isLoading } = useDocuments(page, 20, undefined, poll);
   const { mutate: upload, isPending, progress } = useUpload();
   const { mutate: deleteDoc } = useDeleteDocument();
   const { mutate: retryDoc } = useRetryDocument();
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case 'pending': return 'Pending';
+      case 'queued': return 'Queued';
+      case 'ocr_processing': return 'OCR Processing';
+      case 'ai_processing': return 'AI Extraction';
+      case 'completed': return 'Completed';
+      case 'failed': return 'Failed';
+      default: return status;
+    }
+  };
+  const isActiveStatus = (status: string) => (
+    status === 'pending' || status === 'queued' || status === 'ocr_processing' || status === 'ai_processing'
+  );
+  const hasActive = data?.data?.some((doc: any) => isActiveStatus(doc.status)) ?? false;
+  const blockActions = isPending || hasActive;
+
+  useEffect(() => {
+    setPoll(isPending || hasActive);
+  }, [isPending, hasActive]);
 
   const onDrop = useCallback((accepted: File[]) => {
     accepted.forEach(file => upload(file));
@@ -22,6 +43,7 @@ export default function DocumentsPage() {
     accept: { 'application/pdf': ['.pdf'], 'image/*': ['.jpg', '.jpeg', '.png'] },
     maxSize: 50 * 1024 * 1024,
     multiple: true,
+    disabled: blockActions,
   });
 
   const handleExport = async (id: string, format: 'json' | 'csv') => {
@@ -38,16 +60,28 @@ export default function DocumentsPage() {
   return (
     <div className="p-8 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold text-slate-900 mb-6">Documents</h1>
+      {blockActions && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
+          <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-amber-400 border-t-transparent align-middle" />
+          Processing in progress. Uploads and actions are temporarily disabled.
+        </div>
+      )}
 
       {/* Upload zone */}
       <div {...getRootProps()} className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors mb-6 ${
         isDragActive ? 'border-blue-400 bg-blue-50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
-      }`}>
+      } ${blockActions ? 'opacity-60 cursor-not-allowed' : ''}`}>
         <input {...getInputProps()} />
         <Upload className="mx-auto text-slate-400 mb-3" size={32} />
         <p className="text-slate-600 font-medium">
-          {isDragActive ? 'Drop files here...' : 'Drag & drop PDFs here, or click to browse'}
+          {blockActions ? 'Processing in progress...' : isDragActive ? 'Drop files here...' : 'Drag & drop PDFs here, or click to browse'}
         </p>
+        {blockActions && (
+          <div className="mt-3 flex items-center justify-center gap-2 text-xs text-amber-700">
+            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
+            <span>Working on extraction</span>
+          </div>
+        )}
         <p className="text-sm text-slate-400 mt-1">Supports PDF, JPG, PNG · Max 50MB</p>
         {isPending && (
           <div className="mt-4">
@@ -86,32 +120,37 @@ export default function DocumentsPage() {
                 </td>
                 <td className="px-4 py-3 text-slate-600 capitalize">{doc.documentType ?? '—'}</td>
                 <td className="px-4 py-3">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
                     doc.status === 'completed' ? 'bg-green-100 text-green-700' :
                     doc.status === 'failed'    ? 'bg-red-100 text-red-700' :
                     'bg-amber-100 text-amber-700'
-                  }`}>{doc.status}</span>
+                  }`}>
+                    {isActiveStatus(doc.status) && (
+                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-current" />
+                    )}
+                    {statusLabel(doc.status)}
+                  </span>
                 </td>
                 <td className="px-4 py-3 text-slate-500">{new Date(doc.createdAt).toLocaleDateString()}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1">
                     {(doc.status === 'pending' || doc.status === 'failed') && (
-                      <button onClick={() => retryDoc(doc.id)} title="Retry processing"
+                      <button onClick={() => retryDoc(doc.id)} title="Retry processing" disabled={blockActions}
                         className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors">
                         <RotateCcw size={15} />
                       </button>
                     )}
                     {doc.status === 'completed' && <>
-                      <button onClick={() => handleExport(doc.id, 'json')} title="Export JSON"
+                      <button onClick={() => handleExport(doc.id, 'json')} title="Export JSON" disabled={blockActions}
                         className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
                         <Download size={15} />
                       </button>
-                      <button onClick={() => handleExport(doc.id, 'csv')} title="Export CSV"
+                      <button onClick={() => handleExport(doc.id, 'csv')} title="Export CSV" disabled={blockActions}
                         className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors text-xs font-medium">
                         CSV
                       </button>
                     </>}
-                    <button onClick={() => deleteDoc(doc.id)} title="Delete"
+                    <button onClick={() => deleteDoc(doc.id)} title="Delete" disabled={blockActions}
                       className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors">
                       <Trash2 size={15} />
                     </button>

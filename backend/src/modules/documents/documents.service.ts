@@ -77,6 +77,15 @@ export class DocumentsService {
       throw new BadRequestException('Document already queued or processed');
     }
 
+    const exists = await this.uploadService.objectExists(document.s3Key);
+    if (!exists) {
+      await this.prisma.document.update({
+        where: { id: documentId },
+        data: { status: 'failed', errorMessage: 'File missing in storage. Please re-upload.' },
+      });
+      throw new BadRequestException('File missing in storage. Please re-upload.');
+    }
+
     const processingMode =
       process.env.DOCUMENT_PROCESSING_MODE ||
       (process.env.NODE_ENV === 'production' ? 'queue' : 'inline');
@@ -121,7 +130,7 @@ export class DocumentsService {
   ) {
     await this.prisma.document.update({
       where: { id: documentId },
-      data: { status: 'ocr_processing', errorMessage: null },
+      data: { status: 'ai_processing', errorMessage: null },
     });
 
     try {
@@ -132,7 +141,7 @@ export class DocumentsService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ document_id: documentId, s3_bucket: s3Bucket, s3_key: s3Key }),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(600_000),
       });
 
       if (!response.ok) {
@@ -182,27 +191,9 @@ export class DocumentsService {
             pageCount: extraction.page_count,
           },
         });
-
-        const now = new Date();
-        const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-        await tx.usageRecord.upsert({
-          where: { organizationId_periodStart: { organizationId, periodStart } },
-          create: {
-            organizationId,
-            periodStart,
-            periodEnd,
-            documentsProcessed: 1,
-            pagesProcessed: extraction.page_count || 1,
-          },
-          update: {
-            documentsProcessed: { increment: 1 },
-            pagesProcessed: { increment: extraction.page_count || 1 },
-          },
-        });
       });
 
+      await this.updateUsageRecordSafe(organizationId, extraction.page_count || 1);
       this.logger.log(`Inline processing completed: document=${documentId}`);
     } catch (error: any) {
       this.logger.error(`Inline processing failed: document=${documentId}, message=${error?.message}`);
@@ -215,6 +206,31 @@ export class DocumentsService {
         },
       });
       throw error;
+    }
+  }
+
+  private async updateUsageRecordSafe(organizationId: string, pagesProcessed: number) {
+    try {
+      const now = new Date();
+      const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+      await this.prisma.usageRecord.upsert({
+        where: { organizationId_periodStart: { organizationId, periodStart } },
+        create: {
+          organizationId,
+          periodStart,
+          periodEnd,
+          documentsProcessed: 1,
+          pagesProcessed,
+        },
+        update: {
+          documentsProcessed: { increment: 1 },
+          pagesProcessed: { increment: pagesProcessed },
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(`Usage record update failed: org=${organizationId}, message=${error?.message}`);
     }
   }
 

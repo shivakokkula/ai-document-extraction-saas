@@ -80,10 +80,11 @@ class DocumentExtractionPipeline:
         # Step 2: Convert input to image pages (supports PDFs and uploaded images)
         is_pdf = False
         pdf_raw_text = ""
+        dpi = int(os.getenv("PDF_DPI", "300"))
         if _is_pdf_bytes(file_bytes):
             is_pdf = True
             log.info("pipeline.input_detected", kind="pdf")
-            images = await pdf_to_images(file_bytes, dpi=200)
+            images = await pdf_to_images(file_bytes, dpi=dpi)
             # Fast path: for digital PDFs, extract text directly (no OCR dependency).
             text_pages = await pdf_extract_text_pages(file_bytes)
             pdf_raw_text = "\n\n--- PAGE BREAK ---\n\n".join(t for t in text_pages if t)
@@ -95,7 +96,7 @@ class DocumentExtractionPipeline:
             # Fallback: attempt PDF first, then image
             try:
                 is_pdf = True
-                images = await pdf_to_images(file_bytes, dpi=200)
+                images = await pdf_to_images(file_bytes, dpi=dpi)
                 log.info("pipeline.input_detected", kind="pdf_fallback")
                 text_pages = await pdf_extract_text_pages(file_bytes)
                 pdf_raw_text = "\n\n--- PAGE BREAK ---\n\n".join(t for t in text_pages if t)
@@ -154,10 +155,12 @@ class DocumentExtractionPipeline:
         log.info("pipeline.classified", doc_type=doc_type)
 
         # Step 5: LLM structured extraction
+        # Reduce payload size for long documents to avoid LLM timeouts.
+        max_images = 1 if len(raw_text) > 10000 else 3
         fields, token_count = await self.llm.extract(
             raw_text=raw_text,
             document_type=doc_type,
-            images=images[:3],
+            images=images[:max_images],
         )
         log.info("pipeline.llm_done", tokens=token_count)
 

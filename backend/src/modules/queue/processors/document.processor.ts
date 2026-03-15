@@ -36,7 +36,7 @@ export class DocumentProcessor extends WorkerHost {
 
     await this.prisma.document.update({
       where: { id: documentId },
-      data: { status: 'ocr_processing' },
+      data: { status: 'ai_processing' },
     });
 
     try {
@@ -105,12 +105,14 @@ export class DocumentProcessor extends WorkerHost {
             pageCount: extraction.page_count,
           },
         });
+      });
 
+      try {
         const now = new Date();
         const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
         const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-        await tx.usageRecord.upsert({
+        await this.prisma.usageRecord.upsert({
           where: { organizationId_periodStart: { organizationId, periodStart } },
           create: {
             organizationId,
@@ -124,7 +126,9 @@ export class DocumentProcessor extends WorkerHost {
             pagesProcessed: { increment: extraction.page_count || 1 },
           },
         });
-      });
+      } catch (error: any) {
+        this.logger.warn(`Usage record update failed: org=${organizationId}, message=${error?.message}`);
+      }
 
       await job.updateProgress(100);
       this.logger.log(`Document completed: ${documentId}`);

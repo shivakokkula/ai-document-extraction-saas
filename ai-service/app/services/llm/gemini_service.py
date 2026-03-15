@@ -1,7 +1,9 @@
 import base64
 import json
+import os
 
 import httpx
+import asyncio
 
 from app.config import settings
 from app.models.document_types import EXTRACTION_SCHEMAS
@@ -26,6 +28,10 @@ class GeminiExtractionService:
             raise RuntimeError("Missing GEMINI_API_KEY for AI extraction")
 
         schema = EXTRACTION_SCHEMAS.get(document_type, EXTRACTION_SCHEMAS["generic"])
+        # For long documents, keep both the beginning and ending context.
+        if len(raw_text) > 12000:
+            raw_text = f"{raw_text[:6000]}\n\n...snip...\n\n{raw_text[-6000:]}"
+
         parts = [
             {
                 "text": (
@@ -57,13 +63,30 @@ class GeminiExtractionService:
             },
         }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                self.url,
-                headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
-                json=payload,
-            )
-            response.raise_for_status()
+        timeout = float(os.getenv("LLM_HTTP_TIMEOUT", "420"))
+        max_retries = int(os.getenv("LLM_HTTP_RETRIES", "2"))
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            last_error = None
+            for attempt in range(max_retries + 1):
+                try:
+                    response = await client.post(
+                        self.url,
+                        headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
+                        json=payload,
+                    )
+                    response.raise_for_status()
+                    break
+                except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                    last_error = e
+                except httpx.HTTPStatusError as e:
+                    last_error = e
+                    status = e.response.status_code
+                    if status not in (408, 429, 500, 502, 503, 504):
+                        raise
+
+                if attempt >= max_retries:
+                    raise last_error
+                await asyncio.sleep(2 * (attempt + 1))
 
         data = response.json()
         candidates = data.get("candidates") or []

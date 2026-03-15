@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
-  S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand,
+  S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -47,5 +47,19 @@ export class UploadService {
     const command = new DeleteObjectCommand({ Bucket: this.bucket, Key: s3Key });
     await this.s3.send(command);
     this.logger.log(`Deleted S3 object: ${s3Key}`);
+  }
+
+  async objectExists(s3Key: string): Promise<boolean> {
+    try {
+      const command = new HeadObjectCommand({ Bucket: this.bucket, Key: s3Key });
+      await this.s3.send(command);
+      return true;
+    } catch (error: any) {
+      const name = error?.name || error?.Code || error?.code;
+      if (name === 'NotFound' || name === 'NoSuchKey' || error?.$metadata?.httpStatusCode === 404) {
+        return false;
+      }
+      throw error;
+    }
   }
 }

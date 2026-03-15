@@ -2,11 +2,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import toast from 'react-hot-toast';
 
-export function useDocuments(page = 1, limit = 20, status?: string) {
+export function useDocuments(page = 1, limit = 20, status?: string, poll = false) {
   return useQuery({
     queryKey: ['documents', page, limit, status],
     queryFn: () => apiClient.get<any>('/documents', { page, limit, status }),
     staleTime: 30_000,
+    refetchInterval: poll ? 3000 : false,
   });
 }
 
