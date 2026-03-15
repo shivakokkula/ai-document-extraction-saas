@@ -49,6 +49,9 @@ def get_ocr_service():
     Set OCR_ENGINE=paddleocr for higher accuracy on larger plans.
     """
     engine = os.getenv("OCR_ENGINE", "tesseract").lower()
+    if engine == "easyocr":
+        from app.services.ocr.easyocr_service import EasyOCRService
+        return EasyOCRService()
     if engine == "paddleocr":
         from app.services.ocr.paddleocr_service import PaddleOCRService
         return PaddleOCRService()
