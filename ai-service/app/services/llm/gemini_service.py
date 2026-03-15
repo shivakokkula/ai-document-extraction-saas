@@ -102,7 +102,53 @@ class GeminiExtractionService:
                 raw = raw[4:]
         raw = raw.strip()
 
-        fields = json.loads(raw)
+        def _try_parse_json(text: str):
+            return json.loads(text)
+
+        def _extract_json_block(text: str) -> str:
+            start = text.find("{")
+            end = text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                return text[start:end + 1]
+            return text
+
+        try:
+            fields = _try_parse_json(raw)
+        except json.JSONDecodeError:
+            # Attempt to parse the first full JSON object in the response.
+            candidate = _extract_json_block(raw)
+            try:
+                fields = _try_parse_json(candidate)
+            except json.JSONDecodeError:
+                # Last resort: ask the model to fix JSON formatting.
+                fix_parts = [
+                    {
+                        "text": (
+                            "Fix the following to valid JSON only. "
+                            "Return ONLY the corrected JSON object, no extra text.\n\n"
+                            f"{raw}"
+                        )
+                    }
+                ]
+                fix_payload = {
+                    "contents": [{"role": "user", "parts": fix_parts}],
+                    "generationConfig": {
+                        "temperature": 0.0,
+                        "responseMimeType": "application/json",
+                    },
+                }
+                async with httpx.AsyncClient(timeout=timeout) as fix_client:
+                    fix_response = await fix_client.post(
+                        self.url,
+                        headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
+                        json=fix_payload,
+                    )
+                    fix_response.raise_for_status()
+                fix_data = fix_response.json()
+                fix_parts_out = (fix_data.get("candidates") or [])[0].get("content", {}).get("parts", [])
+                fix_raw = "".join(part.get("text", "") for part in fix_parts_out).strip()
+                fix_raw = _extract_json_block(fix_raw)
+                fields = _try_parse_json(fix_raw)
         usage = data.get("usageMetadata", {})
         token_count = usage.get("totalTokenCount")
 
