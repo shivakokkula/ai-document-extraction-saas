@@ -51,9 +51,6 @@ def get_ocr_service():
     if engine == "easyocr":
         from app.services.ocr.easyocr_service import EasyOCRService
         return EasyOCRService()
-    if engine == "paddleocr":
-        from app.services.ocr.paddleocr_service import PaddleOCRService
-        return PaddleOCRService()
     # Fallback to EasyOCR if unknown engine provided.
     from app.services.ocr.easyocr_service import EasyOCRService
     return EasyOCRService()

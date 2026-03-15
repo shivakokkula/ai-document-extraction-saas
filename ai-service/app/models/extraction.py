@@ -6,7 +6,7 @@ class ExtractionResult(BaseModel):
     document_type: str
     raw_text: str
     ocr_confidence: float
-    ocr_engine: str = "paddleocr"
+    ocr_engine: str = "easyocr"
     extracted_fields: dict[str, Any]
     extraction_model: str
     page_count: int
