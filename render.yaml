@@ -20,8 +20,6 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 4000
       - key: DATABASE_URL
         sync: false        # Set in Render dashboard — use Neon connection string
       - key: DIRECT_URL
@@ -59,7 +57,9 @@ services:
       - key: AI_SERVICE_URL
         sync: false        # URL of docuparsea-ai-service below
       - key: FRONTEND_URL
-        sync: false        # Your Vercel URL
+        sync: false        # Your primary frontend URL
+      - key: FRONTEND_URLS
+        sync: false        # Comma-separated allowed frontend origins
 
   # ── AI Service (FastAPI + OCR + LLM) ────────────────────
   - type: web
@@ -83,4 +83,4 @@ services:
       - key: AWS_S3_BUCKET
         sync: false
       - key: OCR_ENGINE
-        value: tesseract    # Use tesseract on Render (lighter than PaddleOCR)
+        value: easyocr       # EasyOCR (CPU) for Render

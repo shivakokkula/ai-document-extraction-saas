@@ -48,7 +48,7 @@ export class DocumentProcessor extends WorkerHost {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ document_id: documentId, s3_bucket: s3Bucket, s3_key: s3Key }),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(600_000),
       });
 
       if (!response.ok) {
@@ -137,11 +137,10 @@ export class DocumentProcessor extends WorkerHost {
       this.logger.error(
         `Document failed: id=${documentId}, jobId=${job.id}, attemptsMade=${job.attemptsMade}, message=${error?.message}`,
       );
-      const isFinalAttempt = job.attemptsMade >= ((job.opts.attempts ?? 3) - 1);
       await this.prisma.document.update({
         where: { id: documentId },
         data: {
-          status: isFinalAttempt ? 'failed' : 'pending',
+          status: 'failed',
           errorMessage: error.message,
           retryCount: { increment: 1 },
         },
