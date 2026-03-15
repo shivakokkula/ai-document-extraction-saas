@@ -45,18 +45,18 @@ def _guess_type_from_key(s3_key: str) -> str:
 def get_ocr_service():
     """
     Select OCR engine based on environment variable.
-    Default: tesseract (lighter, works on Render starter)
-    Set OCR_ENGINE=paddleocr for higher accuracy on larger plans.
+    Default: easyocr (no system dependency).
     """
-    engine = os.getenv("OCR_ENGINE", "tesseract").lower()
+    engine = os.getenv("OCR_ENGINE", "easyocr").lower()
     if engine == "easyocr":
         from app.services.ocr.easyocr_service import EasyOCRService
         return EasyOCRService()
     if engine == "paddleocr":
         from app.services.ocr.paddleocr_service import PaddleOCRService
         return PaddleOCRService()
-    from app.services.ocr.tesseract_service import TesseractOCRService
-    return TesseractOCRService()
+    # Fallback to EasyOCR if unknown engine provided.
+    from app.services.ocr.easyocr_service import EasyOCRService
+    return EasyOCRService()
 
 
 class DocumentExtractionPipeline:
@@ -74,7 +74,7 @@ class DocumentExtractionPipeline:
     ) -> ExtractionResult:
         start = time.time()
         log = logger.bind(document_id=document_id, s3_bucket=s3_bucket, s3_key=s3_key)
-        log.info("pipeline.start", ocr_engine=os.getenv("OCR_ENGINE", "tesseract"))
+        log.info("pipeline.start", ocr_engine=os.getenv("OCR_ENGINE", "easyocr"))
 
         # Step 1: Download from S3
         file_bytes = await download_from_s3(s3_bucket, s3_key)
@@ -84,6 +84,7 @@ class DocumentExtractionPipeline:
         is_pdf = False
         pdf_raw_text = ""
         dpi = int(os.getenv("PDF_DPI", "200"))
+        max_image_pages = int(os.getenv("PDF_MAX_IMAGE_PAGES", "3"))
         skip_images_when_text = os.getenv("SKIP_PDF_IMAGES_WHEN_TEXT", "true").lower() == "true"
         if _is_pdf_bytes(file_bytes):
             is_pdf = True
@@ -96,7 +97,7 @@ class DocumentExtractionPipeline:
                 images = []
                 log.info("pipeline.pdf_images_skipped", reason="text_present")
             else:
-                images = await pdf_to_images(file_bytes, dpi=dpi)
+                images = await pdf_to_images(file_bytes, dpi=dpi, max_pages=max_image_pages)
         elif _is_image_key(s3_key):
             log.info("pipeline.input_detected", kind="image")
             images = [_convert_image_to_jpeg_bytes(file_bytes)]
@@ -112,7 +113,7 @@ class DocumentExtractionPipeline:
                     log.info("pipeline.input_detected", kind="pdf_fallback")
                     log.info("pipeline.pdf_images_skipped", reason="text_present")
                 else:
-                    images = await pdf_to_images(file_bytes, dpi=dpi)
+                    images = await pdf_to_images(file_bytes, dpi=dpi, max_pages=max_image_pages)
                     log.info("pipeline.input_detected", kind="pdf_fallback")
             except Exception:
                 images = [_convert_image_to_jpeg_bytes(file_bytes)]
@@ -123,7 +124,7 @@ class DocumentExtractionPipeline:
         log.info("pipeline.converted", pages=len(images))
 
         # Step 3: OCR (or use extracted PDF text when available)
-        ocr_engine_used = os.getenv("OCR_ENGINE", "tesseract")
+        ocr_engine_used = os.getenv("OCR_ENGINE", "easyocr")
         ocr_failed_without_text = False
         if is_pdf and len(pdf_raw_text.strip()) >= 50:
             raw_text = pdf_raw_text

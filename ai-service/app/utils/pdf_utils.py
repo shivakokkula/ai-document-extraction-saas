@@ -2,12 +2,14 @@ import fitz  # PyMuPDF
 import io
 from PIL import Image
 
-async def pdf_to_images(pdf_bytes: bytes, dpi: int = 200) -> list[bytes]:
+async def pdf_to_images(pdf_bytes: bytes, dpi: int = 200, max_pages: int | None = None) -> list[bytes]:
     """Convert each PDF page to a JPEG image."""
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     images = []
     mat = fitz.Matrix(dpi / 72, dpi / 72)
-    for page in doc:
+    for idx, page in enumerate(doc):
+        if max_pages is not None and idx >= max_pages:
+            break
         pix = page.get_pixmap(matrix=mat)
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         buf = io.BytesIO()

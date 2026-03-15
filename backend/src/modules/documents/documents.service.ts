@@ -9,6 +9,8 @@ import { UploadService } from './upload.service';
 import { Decimal } from '@prisma/client/runtime/library';
 
 const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
+const ACTIVE_STATUSES = new Set(['pending', 'queued', 'ocr_processing', 'ai_processing']);
+const PROCESSING_TIMEOUT_MINUTES = parseInt(process.env.PROCESSING_TIMEOUT_MINUTES || '10', 10);
 
 @Injectable()
 export class DocumentsService {
@@ -306,8 +308,15 @@ export class DocumentsService {
       this.prisma.document.count({ where }),
     ]);
 
+    const { updatedIds } = await this.failStaleDocuments(documents);
+
     return {
-      data: documents.map((document) => this.serializeDocument(document)),
+      data: documents.map((document) => {
+        if (updatedIds.has(document.id)) {
+          return this.serializeDocument({ ...document, status: 'failed', errorMessage: 'Processing timed out. Please retry.' });
+        }
+        return this.serializeDocument(document);
+      }),
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
@@ -327,9 +336,16 @@ export class DocumentsService {
   async getStatus(id: string, organizationId: string) {
     const document = await this.prisma.document.findFirst({
       where: { id, organizationId },
-      select: { id: true, status: true, errorMessage: true, processedAt: true, retryCount: true },
+      select: { id: true, status: true, errorMessage: true, processedAt: true, retryCount: true, updatedAt: true },
     });
     if (!document) throw new NotFoundException('Document not found');
+    if (this.isStale(document.status, document.processedAt ?? undefined, (document as any).updatedAt)) {
+      await this.prisma.document.update({
+        where: { id },
+        data: { status: 'failed', errorMessage: 'Processing timed out. Please retry.' },
+      });
+      return { ...document, status: 'failed', errorMessage: 'Processing timed out. Please retry.' };
+    }
     return document;
   }
 
@@ -391,5 +407,30 @@ export class DocumentsService {
       // Prisma returns BigInt here, which Express cannot JSON.stringify directly.
       fileSizeBytes: Number(document.fileSizeBytes),
     };
+  }
+
+  private isStale(status: string, processedAt?: Date, updatedAt?: Date) {
+    if (!ACTIVE_STATUSES.has(status)) return false;
+    if (processedAt) return false;
+    if (!updatedAt) return false;
+    const ageMs = Date.now() - new Date(updatedAt).getTime();
+    return ageMs > PROCESSING_TIMEOUT_MINUTES * 60 * 1000;
+  }
+
+  private async failStaleDocuments(docs: Array<any>) {
+    const staleIds = docs
+      .filter((doc) => this.isStale(doc.status, doc.processedAt, doc.updatedAt))
+      .map((doc) => doc.id);
+
+    if (staleIds.length === 0) {
+      return { updatedIds: new Set<string>() };
+    }
+
+    await this.prisma.document.updateMany({
+      where: { id: { in: staleIds } },
+      data: { status: 'failed', errorMessage: 'Processing timed out. Please retry.' },
+    });
+
+    return { updatedIds: new Set(staleIds) };
   }
 }

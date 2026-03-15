@@ -40,15 +40,15 @@ class GeminiExtractionService:
 
         schema = EXTRACTION_SCHEMAS.get(document_type, EXTRACTION_SCHEMAS["generic"])
         # For long documents, keep both the beginning and ending context.
-        if len(raw_text) > 12000:
-            raw_text = f"{raw_text[:6000]}\n\n...snip...\n\n{raw_text[-6000:]}"
+        if len(raw_text) > 8000:
+            raw_text = f"{raw_text[:4000]}\n\n...snip...\n\n{raw_text[-3000:]}"
 
         parts = [
             {
                 "text": (
                     f"{SYSTEM_PROMPT}\n\n"
                     f"Document Type: {document_type}\n\n"
-                    f"OCR Extracted Text:\n{raw_text[:8000]}\n\n"
+                    f"OCR Extracted Text:\n{raw_text[:7000]}\n\n"
                     f"Required JSON Schema:\n{json.dumps(schema, indent=2)}\n\n"
                     "Extract all fields and return only the JSON object."
                 )

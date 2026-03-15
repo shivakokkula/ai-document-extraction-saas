@@ -28,7 +28,9 @@ export default function DocumentsPage() {
     status === 'pending' || status === 'queued' || status === 'ocr_processing' || status === 'ai_processing'
   );
   const hasActive = data?.data?.some((doc: any) => isActiveStatus(doc.status)) ?? false;
-  const blockActions = isPending || hasActive || isRetrying;
+  const isUploading = isPending;
+  const isProcessing = hasActive || isRetrying;
+  const blockActions = isUploading || isProcessing;
 
   useEffect(() => {
     setPoll(isPending || hasActive);
@@ -60,16 +62,15 @@ export default function DocumentsPage() {
   return (
     <div className="p-8 max-w-6xl mx-auto relative">
       <h1 className="text-2xl font-bold text-slate-900 mb-6">Documents</h1>
-      {blockActions && (
+      {isProcessing && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
           <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-amber-400 border-t-transparent align-middle" />
           Processing in progress. Uploads and actions are temporarily disabled.
         </div>
       )}
-      {blockActions && (
-        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-8 text-center">
-          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
-          <p className="mt-3 text-sm text-slate-600">Working on extraction. This can take a few minutes.</p>
+      {isProcessing && (
+        <div className="pointer-events-none fixed right-6 top-6 z-50 rounded-full bg-white p-3 shadow-md">
+          <span className="block h-6 w-6 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
         </div>
       )}
 
@@ -82,7 +83,7 @@ export default function DocumentsPage() {
         <p className="text-slate-600 font-medium">
           {blockActions ? 'Processing in progress...' : isDragActive ? 'Drop files here...' : 'Drag & drop PDFs here, or click to browse'}
         </p>
-        {blockActions && (
+        {isProcessing && (
           <div className="mt-3 flex items-center justify-center gap-2 text-xs text-amber-700">
             <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
             <span>Working on extraction</span>

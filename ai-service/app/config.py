@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     aws_region: str = "ap-south-1"
     aws_s3_endpoint: str = ""
     redis_url: str = "redis://localhost:6379"
-    ocr_engine: str = "paddleocr"   # or 'tesseract'
+    ocr_engine: str = "easyocr"
     llm_model: str = "gemini-2.5-flash"
     log_level: str = "INFO"
 
