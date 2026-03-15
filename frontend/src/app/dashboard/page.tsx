@@ -4,8 +4,8 @@ import { useUsage } from '@/hooks/useSubscription';
 import Link from 'next/link';
 
 export default function DashboardPage() {
-  const { data: docsData } = useDocuments(1, 5);
-  const { data: usage } = useUsage();
+  const { data: docsData, isLoading: docsLoading, isError: docsError } = useDocuments(1, 5);
+  const { data: usage, isLoading: usageLoading, isError: usageError } = useUsage();
 
   const usagePct = usage
     ? usage.documentsLimit === -1
@@ -16,6 +16,16 @@ export default function DashboardPage() {
   return (
     <div className="p-8 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold text-slate-900 mb-6">Dashboard</h1>
+      {(docsLoading || usageLoading) && (
+        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+          Loading overview...
+        </div>
+      )}
+      {(docsError || usageError) && (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
+          Unable to load overview data right now. Please refresh in a moment.
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
