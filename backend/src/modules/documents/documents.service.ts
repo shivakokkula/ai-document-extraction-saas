@@ -63,7 +63,15 @@ export class DocumentsService {
       },
     });
 
-    const uploadUrl = await this.uploadService.getPresignedUploadUrl(s3Key, mimeType);
+    let uploadUrl: string;
+    try {
+      uploadUrl = await this.uploadService.getPresignedUploadUrl(s3Key, mimeType);
+    } catch (error: any) {
+      this.logger.error(
+        `Presigned URL generation failed: doc=${document.id}, s3Key=${s3Key}, message=${error?.message}`,
+      );
+      throw error;
+    }
 
     return { uploadUrl, documentId: document.id, s3Key };
   }
@@ -79,6 +87,9 @@ export class DocumentsService {
 
     const exists = await this.uploadService.objectExists(document.s3Key);
     if (!exists) {
+      this.logger.warn(
+        `Upload missing in storage: document=${documentId}, s3Key=${document.s3Key}, bucket=${document.s3Bucket}`,
+      );
       await this.prisma.document.update({
         where: { id: documentId },
         data: { status: 'failed', errorMessage: 'File missing in storage. Please re-upload.' },

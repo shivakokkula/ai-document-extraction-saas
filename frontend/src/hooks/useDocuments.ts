@@ -48,34 +48,42 @@ export function useUpload() {
 
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
-      // Step 1: Get presigned URL
-      const { uploadUrl, documentId } = await apiClient.post<any>('/documents/upload-url', {
-        filename: file.name,
-        fileSize: file.size,
-        mimeType: file.type,
-      });
-
+      let documentId: string | null = null;
       try {
-        // Step 2: Upload directly to S3
-        await uploadToS3(uploadUrl, file, setProgress);
-      } catch (error) {
-        // Avoid leaving orphan "pending" rows behind when browser-to-S3 upload fails.
-        await apiClient.delete(`/documents/${documentId}`).catch(() => undefined);
-        throw error;
-      }
+        // Step 1: Get presigned URL
+        const presign = await apiClient.post<any>('/documents/upload-url', {
+          filename: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+        });
+        documentId = presign.documentId;
 
-      // Step 3: Trigger processing
-      return apiClient.post<any>('/documents', { documentId });
+        // Step 2: Upload directly to S3
+        await uploadToS3(presign.uploadUrl, file, setProgress);
+
+        // Step 3: Trigger processing
+        return await apiClient.post<any>('/documents', { documentId });
+      } catch (error) {
+        console.error('[Upload] failed', { filename: file.name, documentId, error });
+        if (documentId) {
+          // Avoid leaving orphan "pending" rows behind when upload/trigger fails.
+          await apiClient.delete(`/documents/${documentId}`).catch((deleteError) => {
+            console.error('[Upload] cleanup failed', { documentId, deleteError });
+          });
+        }
+        throw error;
+      } finally {
+        setProgress(0);
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['documents'] });
       toast.success('Document uploaded and queued for processing');
-      setProgress(0);
     },
     onError: (err: any) => {
+      console.error('[Upload] error', err);
       toast.error(err?.response?.data?.message || 'Upload failed');
       qc.invalidateQueries({ queryKey: ['documents'] });
-      setProgress(0);
     },
   });
 
@@ -91,7 +99,7 @@ async function uploadToS3(url: string, file: File, onProgress: (p: number) => vo
     xhr.onload = () => xhr.status === 200
       ? resolve()
       : reject(new Error(`S3 upload failed (${xhr.status})`));
-    xhr.onerror = () => reject(new Error('Upload blocked or failed. Check S3 CORS for localhost:3000.'));
+    xhr.onerror = () => reject(new Error('Upload blocked or failed. Check S3 CORS and network connectivity.'));
     xhr.open('PUT', url);
     xhr.setRequestHeader('Content-Type', file.type);
     xhr.send(file);

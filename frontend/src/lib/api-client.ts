@@ -25,6 +25,15 @@ class ApiClient {
     this.client.interceptors.response.use(
       (res) => res,
       async (error: AxiosError) => {
+        if (typeof window !== 'undefined') {
+          console.error('[API] request failed', {
+            method: error.config?.method,
+            url: error.config?.url,
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message,
+          });
+        }
         const original = error.config as any;
         if (error.response?.status === 401 && !original._retry) {
           original._retry = true;
