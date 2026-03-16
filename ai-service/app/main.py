@@ -50,6 +50,14 @@ async def shutdown_event():
 def health():
     return {"status": "ok"}
 
+@app.head("/health")
+def health_head():
+    return {"status": "ok"}
+
 @app.get("/")
 def root():
+    return {"status": "ok"}
+
+@app.head("/")
+def root_head():
     return {"status": "ok"}
