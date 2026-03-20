@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
+import time
 import structlog
 import traceback
 
@@ -18,6 +19,7 @@ class ExtractRequest(BaseModel):
 
 @router.post("")
 async def extract_document(req: ExtractRequest):
+    start_ms = time.time()
     logger.info(
         "extraction_request_received",
         document_id=req.document_id,
@@ -38,6 +40,7 @@ async def extract_document(req: ExtractRequest):
             document_type=result.document_type,
             pages=result.page_count,
             tokens=result.token_count,
+            elapsed_ms=int((time.time() - start_ms) * 1000),
         )
         return result.model_dump()
     except Exception as e:
@@ -46,5 +49,6 @@ async def extract_document(req: ExtractRequest):
             document_id=req.document_id,
             error=str(e),
             traceback=traceback.format_exc(),
+            elapsed_ms=int((time.time() - start_ms) * 1000),
         )
         raise HTTPException(status_code=500, detail=str(e))

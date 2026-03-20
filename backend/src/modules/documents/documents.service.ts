@@ -77,6 +77,10 @@ export class DocumentsService {
   }
 
   async triggerProcessing(documentId: string, organizationId: string, userId: string) {
+    const startMs = Date.now();
+    this.logger.log(
+      `Trigger processing start: document=${documentId}, org=${organizationId}, user=${userId}`,
+    );
     const document = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
     });
@@ -86,6 +90,9 @@ export class DocumentsService {
     }
 
     const exists = await this.uploadService.objectExists(document.s3Key);
+    this.logger.debug(
+      `Storage existence check: document=${documentId}, exists=${exists}, key=${document.s3Key}`,
+    );
     if (!exists) {
       this.logger.warn(
         `Upload missing in storage: document=${documentId}, s3Key=${document.s3Key}, bucket=${document.s3Bucket}`,
@@ -100,6 +107,9 @@ export class DocumentsService {
     const processingMode =
       process.env.DOCUMENT_PROCESSING_MODE ||
       (process.env.NODE_ENV === 'production' ? 'queue' : 'inline');
+    this.logger.log(
+      `Processing mode resolved: document=${documentId}, mode=${processingMode}, elapsedMs=${Date.now() - startMs}`,
+    );
 
     if (processingMode === 'inline') {
       this.logger.warn(`Inline processing enabled; bypassing queue for document=${documentId}`);
@@ -117,6 +127,7 @@ export class DocumentsService {
       `Queueing document: ${documentId}, status=${document.status}, retryCount=${document.retryCount}, jobId=${jobId}`,
     );
 
+    const enqueueStart = Date.now();
     const job = await this.enqueueWithRetry(
       documentId,
       organizationId,
@@ -125,13 +136,18 @@ export class DocumentsService {
       document.s3Key,
       jobId,
     );
+    this.logger.log(
+      `Queue enqueue completed: document=${documentId}, jobId=${job.id}, elapsedMs=${Date.now() - enqueueStart}`,
+    );
 
     await this.prisma.document.update({
       where: { id: documentId },
       data: { status: 'queued', jobId: job.id?.toString(), errorMessage: null },
     });
 
-    this.logger.log(`Document queued: ${documentId}, job: ${job.id}`);
+    this.logger.log(
+      `Document queued: document=${documentId}, job=${job.id}, totalElapsedMs=${Date.now() - startMs}`,
+    );
     return { documentId, jobId: job.id, status: 'queued' };
   }
 

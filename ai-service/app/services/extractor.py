@@ -69,13 +69,20 @@ class DocumentExtractionPipeline:
         document_id: str,
         hint_type: Optional[str] = None,
     ) -> ExtractionResult:
-        start = time.time()
+        start = time.monotonic()
+        step_start = start
         log = logger.bind(document_id=document_id, s3_bucket=s3_bucket, s3_key=s3_key)
         log.info("pipeline.start", ocr_engine=os.getenv("OCR_ENGINE", "easyocr"))
 
         # Step 1: Download from S3
         file_bytes = await download_from_s3(s3_bucket, s3_key)
-        log.info("pipeline.downloaded", bytes=len(file_bytes))
+        log.info(
+            "pipeline.downloaded",
+            bytes=len(file_bytes),
+            step_ms=int((time.monotonic() - step_start) * 1000),
+            elapsed_ms=int((time.monotonic() - start) * 1000),
+        )
+        step_start = time.monotonic()
 
         # Step 2: Convert input to image pages (supports PDFs and uploaded images)
         is_pdf = False
@@ -118,7 +125,13 @@ class DocumentExtractionPipeline:
 
         if not images and not (is_pdf and pdf_raw_text.strip()):
             raise RuntimeError("No pages/images were produced from input document")
-        log.info("pipeline.converted", pages=len(images))
+        log.info(
+            "pipeline.converted",
+            pages=len(images),
+            step_ms=int((time.monotonic() - step_start) * 1000),
+            elapsed_ms=int((time.monotonic() - start) * 1000),
+        )
+        step_start = time.monotonic()
 
         # Step 3: OCR (or use extracted PDF text when available)
         ocr_engine_used = os.getenv("OCR_ENGINE", "easyocr")
@@ -127,7 +140,12 @@ class DocumentExtractionPipeline:
             raw_text = pdf_raw_text
             avg_confidence = 1.0
             ocr_engine_used = "pdf_text"
-            log.info("pipeline.ocr_skipped_using_pdf_text", chars=len(raw_text))
+            log.info(
+                "pipeline.ocr_skipped_using_pdf_text",
+                chars=len(raw_text),
+                step_ms=int((time.monotonic() - step_start) * 1000),
+                elapsed_ms=int((time.monotonic() - start) * 1000),
+            )
         else:
             ocr_tasks = [self.ocr.extract_page(img, i + 1) for i, img in enumerate(images)]
             try:
@@ -149,9 +167,16 @@ class DocumentExtractionPipeline:
             else:
                 raw_text = "\n\n--- PAGE BREAK ---\n\n".join(r.text for r in page_results)
                 avg_confidence = sum(r.confidence for r in page_results) / max(len(page_results), 1)
-                log.info("pipeline.ocr_done", confidence=round(avg_confidence, 3), chars=len(raw_text))
+                log.info(
+                    "pipeline.ocr_done",
+                    confidence=round(avg_confidence, 3),
+                    chars=len(raw_text),
+                    step_ms=int((time.monotonic() - step_start) * 1000),
+                    elapsed_ms=int((time.monotonic() - start) * 1000),
+                )
                 if not raw_text.strip():
                     log.warning("pipeline.ocr_empty_text", pages=len(images))
+        step_start = time.monotonic()
 
         # Step 4: Classify document type
         if hint_type:
@@ -163,7 +188,13 @@ class DocumentExtractionPipeline:
             log.warning("pipeline.classifier_fallback_from_key", doc_type=doc_type)
         else:
             doc_type = "generic"
-        log.info("pipeline.classified", doc_type=doc_type)
+        log.info(
+            "pipeline.classified",
+            doc_type=doc_type,
+            step_ms=int((time.monotonic() - step_start) * 1000),
+            elapsed_ms=int((time.monotonic() - start) * 1000),
+        )
+        step_start = time.monotonic()
 
         # Step 5: LLM structured extraction
         # If we have sufficient text, send text-only to reduce latency and cost.
@@ -180,9 +211,16 @@ class DocumentExtractionPipeline:
             document_type=doc_type,
             images=images_for_llm,
         )
-        log.info("pipeline.llm_done", tokens=token_count)
+        log.info(
+            "pipeline.llm_done",
+            tokens=token_count,
+            raw_text_chars=len(raw_text),
+            images_sent=len(images_for_llm),
+            step_ms=int((time.monotonic() - step_start) * 1000),
+            elapsed_ms=int((time.monotonic() - start) * 1000),
+        )
 
-        duration_ms = int((time.time() - start) * 1000)
+        duration_ms = int((time.monotonic() - start) * 1000)
         log.info("pipeline.complete", duration_ms=duration_ms)
 
         return ExtractionResult(

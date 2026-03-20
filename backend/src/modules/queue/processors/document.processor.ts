@@ -26,6 +26,7 @@ export class DocumentProcessor extends WorkerHost {
   }
 
   async process(job: Job<DocumentJobPayload>): Promise<void> {
+    const startMs = Date.now();
     const { documentId, organizationId, s3Bucket, s3Key, userId } = job.data;
     this.logger.log(
       `Processing document: id=${documentId}, jobId=${job.id}, attemptsMade=${job.attemptsMade}, maxAttempts=${job.opts.attempts ?? 3}`,
@@ -38,18 +39,23 @@ export class DocumentProcessor extends WorkerHost {
       where: { id: documentId },
       data: { status: 'ai_processing' },
     });
+    this.logger.log(`Document status updated: id=${documentId}, status=ai_processing`);
 
     try {
       await job.updateProgress(10);
 
       const aiServiceUrl = this.config.get('aiService.url');
       this.logger.debug(`Calling AI service for ${documentId}: ${aiServiceUrl}/api/v1/extract`);
+      const aiStart = Date.now();
       const response = await fetch(`${aiServiceUrl}/api/v1/extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ document_id: documentId, s3_bucket: s3Bucket, s3_key: s3Key }),
         signal: AbortSignal.timeout(600_000),
       });
+      this.logger.log(
+        `AI service response received: document=${documentId}, status=${response.status}, elapsedMs=${Date.now() - aiStart}`,
+      );
 
       if (!response.ok) {
         const errorBody = await response.text();
@@ -106,6 +112,9 @@ export class DocumentProcessor extends WorkerHost {
           },
         });
       });
+      this.logger.log(
+        `Document persisted: id=${documentId}, status=completed, elapsedMs=${Date.now() - startMs}`,
+      );
 
       try {
         const now = new Date();
@@ -131,7 +140,7 @@ export class DocumentProcessor extends WorkerHost {
       }
 
       await job.updateProgress(100);
-      this.logger.log(`Document completed: ${documentId}`);
+      this.logger.log(`Document completed: ${documentId}, totalElapsedMs=${Date.now() - startMs}`);
 
     } catch (error: any) {
       this.logger.error(
