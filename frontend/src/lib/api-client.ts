@@ -43,19 +43,12 @@ class ApiClient {
         const url = original?.url || '';
         const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh');
 
-        if (error.response?.status === 401 && !original._retry && !isAuthEndpoint) {
-          original._retry = true;
-          try {
-            const refreshToken = localStorage.getItem('refresh_token');
-            if (!refreshToken) throw new Error('No refresh token');
-            const { data } = await axios.post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken });
-            localStorage.setItem('access_token', data.accessToken);
-            localStorage.setItem('refresh_token', data.refreshToken);
-            original.headers.Authorization = `Bearer ${data.accessToken}`;
-            return this.client(original);
-          } catch {
+        if (error.response?.status === 401) {
+          if (typeof window !== 'undefined') {
             localStorage.clear();
-            window.location.href = '/auth/login';
+            if (!isAuthEndpoint) {
+              window.location.href = '/auth/login';
+            }
           }
         }
 
