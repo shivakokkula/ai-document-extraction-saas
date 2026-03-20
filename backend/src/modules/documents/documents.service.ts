@@ -1,8 +1,6 @@
 import {
   Injectable, NotFoundException, BadRequestException, Logger, HttpException, InternalServerErrorException,
 } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UploadService } from './upload.service';
@@ -12,19 +10,15 @@ const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image
 const ACTIVE_STATUSES = new Set(['pending', 'queued', 'ocr_processing', 'ai_processing']);
 const PROCESSING_TIMEOUT_SECONDS = parseInt(process.env.PROCESSING_TIMEOUT_SECONDS || '30', 10);
 const AI_REQUEST_TIMEOUT_MS = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '30000', 10);
-const QUEUE_ENQUEUE_TIMEOUT_MS = parseInt(process.env.QUEUE_ENQUEUE_TIMEOUT_MS || '30000', 10);
 
 @Injectable()
 export class DocumentsService {
   private readonly logger = new Logger(DocumentsService.name);
-  private static readonly QUEUE_ENQUEUE_ATTEMPTS = 3;
-  private static readonly QUEUE_RETRY_DELAY_MS = 500;
 
   constructor(
     private prisma: PrismaService,
     private uploadService: UploadService,
     private config: ConfigService,
-    @InjectQueue('document-processing') private docQueue: Queue,
   ) {}
 
   async getUploadUrl(
@@ -107,51 +101,17 @@ export class DocumentsService {
         throw new BadRequestException('File missing in storage. Please re-upload.');
       }
 
-      const processingMode =
-        process.env.DOCUMENT_PROCESSING_MODE ||
-        (process.env.NODE_ENV === 'production' ? 'queue' : 'inline');
-      this.logger.log(
-        `Processing mode resolved: document=${documentId}, mode=${processingMode}, elapsedMs=${Date.now() - startMs}`,
-      );
+    const processingMode = 'inline';
+    this.logger.log(
+      `Processing mode resolved: document=${documentId}, mode=${processingMode}, elapsedMs=${Date.now() - startMs}`,
+    );
 
-      if (processingMode === 'inline') {
-        this.logger.warn(`Inline processing enabled; bypassing queue for document=${documentId}`);
-        this.processInline(documentId, organizationId, document.s3Bucket, document.s3Key)
-          .catch((error) => {
-            this.logger.error(`Inline processing background error: document=${documentId}, message=${error?.message}`);
-          });
-        return { documentId, status: 'processing', mode: 'inline' };
-      }
-
-      // Use a unique job id per enqueue so manual retries can run even when a previous
-      // failed/completed job for the same document is still retained in BullMQ.
-      const jobId = `doc-${documentId}-${Date.now()}`;
-      this.logger.debug(
-        `Queueing document: ${documentId}, status=${document.status}, retryCount=${document.retryCount}, jobId=${jobId}`,
-      );
-
-      const enqueueStart = Date.now();
-      const job = await this.enqueueWithRetry(
-        documentId,
-        organizationId,
-        userId,
-        document.s3Bucket,
-        document.s3Key,
-        jobId,
-      );
-      this.logger.log(
-        `Queue enqueue completed: document=${documentId}, jobId=${job.id}, elapsedMs=${Date.now() - enqueueStart}`,
-      );
-
-      await this.prisma.document.update({
-        where: { id: documentId },
-        data: { status: 'queued', jobId: job.id?.toString(), errorMessage: null },
+    this.logger.warn(`Inline processing enabled; bypassing queue for document=${documentId}`);
+    this.processInline(documentId, organizationId, document.s3Bucket, document.s3Key)
+      .catch((error) => {
+        this.logger.error(`Inline processing background error: document=${documentId}, message=${error?.message}`);
       });
-
-      this.logger.log(
-        `Document queued: document=${documentId}, job=${job.id}, totalElapsedMs=${Date.now() - startMs}`,
-      );
-      return { documentId, jobId: job.id, status: 'queued' };
+    return { documentId, status: 'processing', mode: 'inline' };
     } catch (error: any) {
       const message = error?.message || 'Unknown error';
       this.logger.error(
@@ -333,62 +293,6 @@ export class DocumentsService {
     throw new Error('AI service request failed after retries');
   }
 
-  private async enqueueWithRetry(
-    documentId: string,
-    organizationId: string,
-    userId: string,
-    s3Bucket: string,
-    s3Key: string,
-    jobId: string,
-  ) {
-    let lastError: any;
-    const redisUrl = this.config.get<string>('redis.url') || '';
-    const redisUrlSet = Boolean(redisUrl);
-
-    for (let attempt = 1; attempt <= DocumentsService.QUEUE_ENQUEUE_ATTEMPTS; attempt++) {
-      try {
-        if (attempt > 1) {
-          this.logger.warn(
-            `Retrying queue enqueue for ${documentId}, attempt=${attempt}/${DocumentsService.QUEUE_ENQUEUE_ATTEMPTS}`,
-          );
-        }
-
-        const enqueuePromise = this.docQueue.add(
-          'process-document',
-          { documentId, organizationId, s3Bucket, s3Key, userId },
-          { jobId },
-        );
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Queue enqueue timed out')), QUEUE_ENQUEUE_TIMEOUT_MS);
-        });
-        return await Promise.race([enqueuePromise, timeoutPromise]);
-      } catch (error: any) {
-        lastError = error;
-        const code = error?.code || error?.cause?.code;
-        const isTransient =
-          code === 'ECONNRESET' ||
-          code === 'ETIMEDOUT' ||
-          code === 'ECONNREFUSED' ||
-          code === 'EPIPE' ||
-          code === 'NR_CLOSED';
-
-        this.logger.error(
-          `Queue enqueue failed for ${documentId}, attempt=${attempt}, code=${code}, message=${error?.message}, redisUrlSet=${redisUrlSet}`,
-        );
-        if (error?.stack) {
-          this.logger.debug(`Queue enqueue stack: document=${documentId}, stack=${error.stack}`);
-        }
-
-        if (!isTransient || attempt === DocumentsService.QUEUE_ENQUEUE_ATTEMPTS) {
-          break;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, DocumentsService.QUEUE_RETRY_DELAY_MS * attempt));
-      }
-    }
-
-    throw lastError;
-  }
 
   async findAll(organizationId: string, page = 1, limit = 20, status?: string, type?: string) {
     const where: any = { organizationId, deletedAt: null };
