@@ -10,7 +10,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 
 const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
 const ACTIVE_STATUSES = new Set(['pending', 'queued', 'ocr_processing', 'ai_processing']);
-const PROCESSING_TIMEOUT_MINUTES = parseInt(process.env.PROCESSING_TIMEOUT_MINUTES || '10', 10);
+const PROCESSING_TIMEOUT_SECONDS = parseInt(process.env.PROCESSING_TIMEOUT_SECONDS || '20', 10);
 
 @Injectable()
 export class DocumentsService {
@@ -514,7 +514,7 @@ export class DocumentsService {
     if (processedAt) return false;
     if (!updatedAt) return false;
     const ageMs = Date.now() - new Date(updatedAt).getTime();
-    return ageMs > PROCESSING_TIMEOUT_MINUTES * 60 * 1000;
+    return ageMs > PROCESSING_TIMEOUT_SECONDS * 1000;
   }
 
   private async failStaleDocuments(docs: Array<any>) {

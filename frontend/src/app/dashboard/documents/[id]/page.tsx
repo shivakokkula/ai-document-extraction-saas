@@ -123,7 +123,7 @@ export default function DocumentDetailPage({ params }: DetailPageProps) {
           <h2 className="text-lg font-semibold text-slate-900">Extraction</h2>
           <p className="mt-2 text-sm text-slate-500">
             {currentStatus === 'failed'
-              ? 'Parsing failed. Check the error above and retry after fixing the AI service or document input.'
+              ? 'Processing timed out or failed. Please retry or re-upload.'
               : ACTIVE_STATUSES.has(currentStatus ?? '')
                 ? `Processing in progress: ${statusLabel(currentStatus)}. You can leave this page; it will update when done.`
                 : 'This document has not been parsed yet. Once processing completes, extracted fields will appear here.'}

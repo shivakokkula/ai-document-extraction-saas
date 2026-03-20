@@ -137,6 +137,11 @@ export default function DocumentsPage() {
                     )}
                     {statusLabel(doc.status)}
                   </span>
+                  {doc.status === 'failed' && (
+                    <p className="mt-1 text-xs text-red-600">
+                      Timed out. Please retry or re-upload.
+                    </p>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-slate-500">{new Date(doc.createdAt).toLocaleDateString()}</td>
                 <td className="px-4 py-3">

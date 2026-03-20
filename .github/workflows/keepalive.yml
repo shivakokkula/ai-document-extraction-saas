@@ -1,0 +1,17 @@
+name: Keep Render Services Warm
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend
+        run: |
+          curl -fsS https://ai-document-extraction-saas.onrender.com/health || true
+      - name: Ping AI service
+        run: |
+          curl -fsS https://ai-document-extraction-saas-khz5.onrender.com/health || true
