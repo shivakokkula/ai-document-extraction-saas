@@ -74,7 +74,7 @@ class GeminiExtractionService:
             },
         }
 
-        timeout = float(os.getenv("LLM_HTTP_TIMEOUT", "30"))
+        timeout = float(os.getenv("LLM_HTTP_TIMEOUT", "60"))
         max_retries = int(os.getenv("LLM_HTTP_RETRIES", "0"))
         client = self._get_client(timeout)
         last_error = None

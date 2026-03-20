@@ -15,7 +15,7 @@ export class UploadService {
   constructor(private config: ConfigService) {
     this.bucket = config.get('aws.s3Bucket')!;
     const endpoint = config.get('aws.s3Endpoint');
-    this.requestTimeoutMs = parseInt(process.env.S3_REQUEST_TIMEOUT_MS || '30000', 10);
+    this.requestTimeoutMs = parseInt(process.env.S3_REQUEST_TIMEOUT_MS || '60000', 10);
 
     this.s3 = new S3Client({
       region: config.get('aws.region') || 'us-east-1',

@@ -17,7 +17,7 @@ export interface DocumentJobPayload {
 @Injectable()
 export class DocumentProcessor extends WorkerHost {
   private readonly logger = new Logger(DocumentProcessor.name);
-  private static readonly AI_REQUEST_TIMEOUT_MS = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '30000', 10);
+  private static readonly AI_REQUEST_TIMEOUT_MS = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '60000', 10);
 
   constructor(
     private prisma: PrismaService,
