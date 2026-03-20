@@ -1,6 +1,11 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const DEFAULT_TIMEOUT_MS = 90000;
+const MAX_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 800;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class ApiClient {
   private client: AxiosInstance;
@@ -9,7 +14,7 @@ class ApiClient {
     this.client = axios.create({
       baseURL: `${BASE_URL}/api/v1`,
       headers: { 'Content-Type': 'application/json' },
-      timeout: 20000,
+      timeout: DEFAULT_TIMEOUT_MS,
     });
 
     // Attach JWT on every request
@@ -35,7 +40,10 @@ class ApiClient {
           });
         }
         const original = error.config as any;
-        if (error.response?.status === 401 && !original._retry) {
+        const url = original?.url || '';
+        const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh');
+
+        if (error.response?.status === 401 && !original._retry && !isAuthEndpoint) {
           original._retry = true;
           try {
             const refreshToken = localStorage.getItem('refresh_token');
@@ -50,6 +58,21 @@ class ApiClient {
             window.location.href = '/auth/login';
           }
         }
+
+        // Retry on timeouts / network errors / 502-504
+        const status = error.response?.status;
+        const isTimeout = error.code === 'ECONNABORTED' || /timeout/i.test(error.message || '');
+        const isNetwork = !error.response;
+        const isRetryableStatus = status === 502 || status === 503 || status === 504;
+        const shouldRetry = (isTimeout || isNetwork || isRetryableStatus) && (original._retryCount || 0) < MAX_RETRIES;
+
+        if (shouldRetry) {
+          original._retryCount = (original._retryCount || 0) + 1;
+          const delay = RETRY_BASE_DELAY_MS * Math.pow(2, original._retryCount - 1);
+          await sleep(delay);
+          return this.client(original);
+        }
+
         return Promise.reject(error);
       },
     );

@@ -17,7 +17,12 @@ export default function LoginPage() {
       await login(form.email, form.password);
       router.push('/dashboard');
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Login failed');
+      const status = err?.response?.status;
+      if (status === 401) {
+        toast.error('Invalid email or password');
+      } else {
+        toast.error(err?.response?.data?.message || 'Login failed');
+      }
     } finally {
       setLoading(false);
     }

@@ -190,12 +190,11 @@ export class DocumentsService {
       const aiServiceUrl = this.config.get<string>('aiService.url');
       this.logger.debug(`Inline AI extraction start: document=${documentId}, aiServiceUrl=${aiServiceUrl}`);
 
-      const response = await fetch(`${aiServiceUrl}/api/v1/extract`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ document_id: documentId, s3_bucket: s3Bucket, s3_key: s3Key }),
-        signal: AbortSignal.timeout(600_000),
-      });
+      const response = await this.fetchAiWithRetry(
+        `${aiServiceUrl}/api/v1/extract`,
+        { document_id: documentId, s3_bucket: s3Bucket, s3_key: s3Key },
+        documentId,
+      );
 
       if (!response.ok) {
         const errorBody = await response.text();
@@ -285,6 +284,51 @@ export class DocumentsService {
     } catch (error: any) {
       this.logger.warn(`Usage record update failed: org=${organizationId}, message=${error?.message}`);
     }
+  }
+
+  private async fetchAiWithRetry(
+    url: string,
+    payload: Record<string, any>,
+    documentId: string,
+  ) {
+    const maxAttempts = 3;
+    const baseDelayMs = 1000;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const attemptStart = Date.now();
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(600_000),
+        });
+
+        if (response.status === 502 || response.status === 503 || response.status === 504) {
+          this.logger.warn(
+            `AI service retryable response: document=${documentId}, status=${response.status}, attempt=${attempt}`,
+          );
+          if (attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, baseDelayMs * attempt));
+            continue;
+          }
+        }
+
+        this.logger.log(
+          `AI service response received: document=${documentId}, status=${response.status}, elapsedMs=${Date.now() - attemptStart}`,
+        );
+        return response;
+      } catch (error: any) {
+        this.logger.warn(
+          `AI service request failed: document=${documentId}, attempt=${attempt}, message=${error?.message}`,
+        );
+        if (attempt >= maxAttempts) {
+          throw error;
+        }
+        await new Promise((r) => setTimeout(r, baseDelayMs * attempt));
+      }
+    }
+    throw new Error('AI service request failed after retries');
   }
 
   private async enqueueWithRetry(
