@@ -2,7 +2,7 @@ name: Keep Render Services Warm
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "* * * * *"
   workflow_dispatch: {}
 
 jobs:
