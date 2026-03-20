@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Delete, Body, Param, Query,
-  UseGuards, Res, HttpCode, HttpStatus,
+  UseGuards, Res, HttpCode, HttpStatus, Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { Response } from 'express';
@@ -16,6 +16,7 @@ import { TriggerProcessingDto } from './dto/trigger-processing.dto';
 @UseGuards(JwtAuthGuard)
 @Controller('documents')
 export class DocumentsController {
+  private readonly logger = new Logger(DocumentsController.name);
   constructor(private documentsService: DocumentsService) {}
 
   @Post('upload-url')
@@ -31,6 +32,7 @@ export class DocumentsController {
   @UseGuards(SubscriptionGuard)
   @ApiOperation({ summary: 'Register uploaded document and trigger processing' })
   triggerProcessing(@Body() dto: TriggerProcessingDto, @CurrentUser() user: any) {
+    this.logger.log(`Trigger processing requested: document=${dto.documentId}, user=${user.id}, org=${user.organizationId}`);
     return this.documentsService.triggerProcessing(
       dto.documentId, user.organizationId, user.id,
     );
@@ -40,6 +42,7 @@ export class DocumentsController {
   @UseGuards(SubscriptionGuard)
   @ApiOperation({ summary: 'Retry processing for a pending/failed document' })
   retryProcessing(@Param('id') id: string, @CurrentUser() user: any) {
+    this.logger.log(`Retry requested: document=${id}, user=${user.id}, org=${user.organizationId}`);
     return this.documentsService.triggerProcessing(id, user.organizationId, user.id);
   }
 

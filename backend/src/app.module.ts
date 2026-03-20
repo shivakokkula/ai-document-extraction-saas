@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
@@ -31,6 +31,17 @@ import configuration from './config/configuration';
       useFactory: (config: ConfigService) => {
         const redisUrl = config.get<string>('redis.url') || '';
         const usesTls = redisUrl.startsWith('rediss://');
+        const logger = new Logger('RedisConfig');
+        if (!redisUrl) {
+          logger.error('REDIS_URL is not set. Queueing will fail in production.');
+        } else {
+          try {
+            const parsed = new URL(redisUrl);
+            logger.log(`Redis configured: scheme=${parsed.protocol.replace(':', '')}, host=${parsed.hostname}`);
+          } catch {
+            logger.warn('REDIS_URL is set but could not be parsed.');
+          }
+        }
 
         return {
           connection: {
@@ -38,6 +49,8 @@ import configuration from './config/configuration';
             // Upstash URLs use rediss:// and require TLS in every environment.
             tls: usesTls ? {} : undefined,
             maxRetriesPerRequest: null, // Required by BullMQ
+            enableReadyCheck: false,
+            connectTimeout: 10000,
           },
           defaultJobOptions: {
             attempts: 3,

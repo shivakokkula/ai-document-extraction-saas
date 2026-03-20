@@ -3,6 +3,7 @@ import time
 from typing import Optional
 import structlog
 import os
+import sys
 from PIL import Image
 import io
 
@@ -48,6 +49,9 @@ def get_ocr_service():
     Default: easyocr (no system dependency).
     """
     engine = os.getenv("OCR_ENGINE", "easyocr").lower()
+    if engine == "tesseract" and sys.platform != "win32":
+        logger.warning("ocr_engine_unsupported_on_platform", engine=engine, platform=sys.platform)
+        engine = "easyocr"
     if engine == "easyocr":
         from app.services.ocr.easyocr_service import EasyOCRService
         return EasyOCRService()

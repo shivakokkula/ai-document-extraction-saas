@@ -1,5 +1,5 @@
 import {
-  Injectable, NotFoundException, BadRequestException, Logger,
+  Injectable, NotFoundException, BadRequestException, Logger, HttpException, InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -81,74 +81,98 @@ export class DocumentsService {
     this.logger.log(
       `Trigger processing start: document=${documentId}, org=${organizationId}, user=${userId}`,
     );
-    const document = await this.prisma.document.findFirst({
-      where: { id: documentId, organizationId },
-    });
-    if (!document) throw new NotFoundException('Document not found');
-    if (!['pending', 'failed'].includes(document.status)) {
-      throw new BadRequestException('Document already queued or processed');
-    }
+    try {
+      const document = await this.prisma.document.findFirst({
+        where: { id: documentId, organizationId },
+      });
+      if (!document) throw new NotFoundException('Document not found');
+      if (!['pending', 'failed'].includes(document.status)) {
+        throw new BadRequestException('Document already queued or processed');
+      }
 
-    const exists = await this.uploadService.objectExists(document.s3Key);
-    this.logger.debug(
-      `Storage existence check: document=${documentId}, exists=${exists}, key=${document.s3Key}`,
-    );
-    if (!exists) {
-      this.logger.warn(
-        `Upload missing in storage: document=${documentId}, s3Key=${document.s3Key}, bucket=${document.s3Bucket}`,
+      const exists = await this.uploadService.objectExists(document.s3Key);
+      this.logger.debug(
+        `Storage existence check: document=${documentId}, exists=${exists}, key=${document.s3Key}`,
       );
+      if (!exists) {
+        this.logger.warn(
+          `Upload missing in storage: document=${documentId}, s3Key=${document.s3Key}, bucket=${document.s3Bucket}`,
+        );
+        await this.prisma.document.update({
+          where: { id: documentId },
+          data: { status: 'failed', errorMessage: 'File missing in storage. Please re-upload.' },
+        });
+        throw new BadRequestException('File missing in storage. Please re-upload.');
+      }
+
+      const processingMode =
+        process.env.DOCUMENT_PROCESSING_MODE ||
+        (process.env.NODE_ENV === 'production' ? 'queue' : 'inline');
+      this.logger.log(
+        `Processing mode resolved: document=${documentId}, mode=${processingMode}, elapsedMs=${Date.now() - startMs}`,
+      );
+
+      if (processingMode === 'inline') {
+        this.logger.warn(`Inline processing enabled; bypassing queue for document=${documentId}`);
+        this.processInline(documentId, organizationId, document.s3Bucket, document.s3Key)
+          .catch((error) => {
+            this.logger.error(`Inline processing background error: document=${documentId}, message=${error?.message}`);
+          });
+        return { documentId, status: 'processing', mode: 'inline' };
+      }
+
+      // Use a unique job id per enqueue so manual retries can run even when a previous
+      // failed/completed job for the same document is still retained in BullMQ.
+      const jobId = `doc-${documentId}-${Date.now()}`;
+      this.logger.debug(
+        `Queueing document: ${documentId}, status=${document.status}, retryCount=${document.retryCount}, jobId=${jobId}`,
+      );
+
+      const enqueueStart = Date.now();
+      const job = await this.enqueueWithRetry(
+        documentId,
+        organizationId,
+        userId,
+        document.s3Bucket,
+        document.s3Key,
+        jobId,
+      );
+      this.logger.log(
+        `Queue enqueue completed: document=${documentId}, jobId=${job.id}, elapsedMs=${Date.now() - enqueueStart}`,
+      );
+
       await this.prisma.document.update({
         where: { id: documentId },
-        data: { status: 'failed', errorMessage: 'File missing in storage. Please re-upload.' },
+        data: { status: 'queued', jobId: job.id?.toString(), errorMessage: null },
       });
-      throw new BadRequestException('File missing in storage. Please re-upload.');
+
+      this.logger.log(
+        `Document queued: document=${documentId}, job=${job.id}, totalElapsedMs=${Date.now() - startMs}`,
+      );
+      return { documentId, jobId: job.id, status: 'queued' };
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      this.logger.error(
+        `Trigger processing failed: document=${documentId}, org=${organizationId}, user=${userId}, message=${message}`,
+      );
+      const status = typeof error?.getStatus === 'function' ? error.getStatus() : undefined;
+      if (!status || status >= 500) {
+        try {
+          await this.prisma.document.update({
+            where: { id: documentId },
+            data: { status: 'failed', errorMessage: message },
+          });
+        } catch (updateError: any) {
+          this.logger.warn(
+            `Failed to persist error state: document=${documentId}, message=${updateError?.message}`,
+          );
+        }
+      }
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to queue document');
     }
-
-    const processingMode =
-      process.env.DOCUMENT_PROCESSING_MODE ||
-      (process.env.NODE_ENV === 'production' ? 'queue' : 'inline');
-    this.logger.log(
-      `Processing mode resolved: document=${documentId}, mode=${processingMode}, elapsedMs=${Date.now() - startMs}`,
-    );
-
-    if (processingMode === 'inline') {
-      this.logger.warn(`Inline processing enabled; bypassing queue for document=${documentId}`);
-      this.processInline(documentId, organizationId, document.s3Bucket, document.s3Key)
-        .catch((error) => {
-          this.logger.error(`Inline processing background error: document=${documentId}, message=${error?.message}`);
-        });
-      return { documentId, status: 'processing', mode: 'inline' };
-    }
-
-    // Use a unique job id per enqueue so manual retries can run even when a previous
-    // failed/completed job for the same document is still retained in BullMQ.
-    const jobId = `doc-${documentId}-${Date.now()}`;
-    this.logger.debug(
-      `Queueing document: ${documentId}, status=${document.status}, retryCount=${document.retryCount}, jobId=${jobId}`,
-    );
-
-    const enqueueStart = Date.now();
-    const job = await this.enqueueWithRetry(
-      documentId,
-      organizationId,
-      userId,
-      document.s3Bucket,
-      document.s3Key,
-      jobId,
-    );
-    this.logger.log(
-      `Queue enqueue completed: document=${documentId}, jobId=${job.id}, elapsedMs=${Date.now() - enqueueStart}`,
-    );
-
-    await this.prisma.document.update({
-      where: { id: documentId },
-      data: { status: 'queued', jobId: job.id?.toString(), errorMessage: null },
-    });
-
-    this.logger.log(
-      `Document queued: document=${documentId}, job=${job.id}, totalElapsedMs=${Date.now() - startMs}`,
-    );
-    return { documentId, jobId: job.id, status: 'queued' };
   }
 
   private async processInline(
@@ -272,6 +296,8 @@ export class DocumentsService {
     jobId: string,
   ) {
     let lastError: any;
+    const redisUrl = this.config.get<string>('redis.url') || '';
+    const redisUrlSet = Boolean(redisUrl);
 
     for (let attempt = 1; attempt <= DocumentsService.QUEUE_ENQUEUE_ATTEMPTS; attempt++) {
       try {
@@ -297,8 +323,11 @@ export class DocumentsService {
           code === 'NR_CLOSED';
 
         this.logger.error(
-          `Queue enqueue failed for ${documentId}, attempt=${attempt}, code=${code}, message=${error?.message}`,
+          `Queue enqueue failed for ${documentId}, attempt=${attempt}, code=${code}, message=${error?.message}, redisUrlSet=${redisUrlSet}`,
         );
+        if (error?.stack) {
+          this.logger.debug(`Queue enqueue stack: document=${documentId}, stack=${error.stack}`);
+        }
 
         if (!isTransient || attempt === DocumentsService.QUEUE_ENQUEUE_ATTEMPTS) {
           break;

@@ -49,8 +49,9 @@ async function bootstrap() {
     Logger.log('Swagger docs: http://localhost:4000/api/docs', 'Bootstrap');
   }
 
-  const port = process.env.PORT || 4000;
-  const server = await app.listen(port);
+  const port = Number(process.env.PORT || 4000);
+  const host = process.env.HOST || '0.0.0.0';
+  const server = await app.listen(port, host);
 
   server.on('clientError', (err: NodeJS.ErrnoException, socket: Socket) => {
     if (err.code === 'ECONNRESET' || !socket.writable) {
@@ -59,7 +60,11 @@ async function bootstrap() {
 
     socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
   });
-  Logger.log(`🚀 Backend running on: http://localhost:${port}/api/v1`, 'Bootstrap');
+  const publicUrl = process.env.RENDER_EXTERNAL_URL || `http://${host}:${port}`;
+  Logger.log(`Backend running on: ${publicUrl}/api/v1`, 'Bootstrap');
 }
 
 bootstrap();
+
+
+
