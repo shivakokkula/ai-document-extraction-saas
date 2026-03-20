@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import { FileText, CreditCard, Settings, LayoutDashboard, LogOut } from 'lucide-react';
 import { logout } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 const navItems = [
   { href: '/dashboard',           label: 'Overview',   icon: LayoutDashboard },
@@ -15,6 +16,25 @@ const navItems = [
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+
+  useEffect(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    const aiBase = process.env.NEXT_PUBLIC_AI_SERVICE_URL || 'https://ai-document-extraction-saas-khz5.onrender.com';
+    const intervalMs = 4 * 60 * 1000;
+
+    const ping = async () => {
+      try {
+        await fetch(`${apiBase}/health`, { method: 'GET', keepalive: true });
+      } catch {}
+      try {
+        await fetch(`${aiBase}/health`, { method: 'GET', keepalive: true });
+      } catch {}
+    };
+
+    ping();
+    const id = setInterval(ping, intervalMs);
+    return () => clearInterval(id);
+  }, []);
 
   const handleLogout = async () => {
     const rt = localStorage.getItem('refresh_token') || '';

@@ -10,10 +10,12 @@ export class UploadService {
   private readonly logger = new Logger(UploadService.name);
   private s3: S3Client;
   private bucket: string;
+  private requestTimeoutMs: number;
 
   constructor(private config: ConfigService) {
     this.bucket = config.get('aws.s3Bucket')!;
     const endpoint = config.get('aws.s3Endpoint');
+    this.requestTimeoutMs = parseInt(process.env.S3_REQUEST_TIMEOUT_MS || '30000', 10);
 
     this.s3 = new S3Client({
       region: config.get('aws.region') || 'us-east-1',
@@ -45,14 +47,14 @@ export class UploadService {
 
   async deleteObject(s3Key: string): Promise<void> {
     const command = new DeleteObjectCommand({ Bucket: this.bucket, Key: s3Key });
-    await this.s3.send(command);
+    await this.sendWithTimeout(command);
     this.logger.log(`Deleted S3 object: ${s3Key}`);
   }
 
   async objectExists(s3Key: string): Promise<boolean> {
     try {
       const command = new HeadObjectCommand({ Bucket: this.bucket, Key: s3Key });
-      await this.s3.send(command);
+      await this.sendWithTimeout(command);
       return true;
     } catch (error: any) {
       const name = error?.name || error?.Code || error?.code;
@@ -60,6 +62,16 @@ export class UploadService {
         return false;
       }
       throw error;
+    }
+  }
+
+  private async sendWithTimeout(command: any) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    try {
+      return await this.s3.send(command, { abortSignal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
     }
   }
 }

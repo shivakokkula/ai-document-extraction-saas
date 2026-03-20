@@ -17,6 +17,7 @@ export interface DocumentJobPayload {
 @Injectable()
 export class DocumentProcessor extends WorkerHost {
   private readonly logger = new Logger(DocumentProcessor.name);
+  private static readonly AI_REQUEST_TIMEOUT_MS = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '30000', 10);
 
   constructor(
     private prisma: PrismaService,
@@ -172,7 +173,7 @@ export class DocumentProcessor extends WorkerHost {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(600_000),
+          signal: AbortSignal.timeout(DocumentProcessor.AI_REQUEST_TIMEOUT_MS),
         });
 
         if (response.status === 502 || response.status === 503 || response.status === 504) {

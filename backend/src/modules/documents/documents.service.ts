@@ -10,7 +10,9 @@ import { Decimal } from '@prisma/client/runtime/library';
 
 const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
 const ACTIVE_STATUSES = new Set(['pending', 'queued', 'ocr_processing', 'ai_processing']);
-const PROCESSING_TIMEOUT_SECONDS = parseInt(process.env.PROCESSING_TIMEOUT_SECONDS || '20', 10);
+const PROCESSING_TIMEOUT_SECONDS = parseInt(process.env.PROCESSING_TIMEOUT_SECONDS || '30', 10);
+const AI_REQUEST_TIMEOUT_MS = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '30000', 10);
+const QUEUE_ENQUEUE_TIMEOUT_MS = parseInt(process.env.QUEUE_ENQUEUE_TIMEOUT_MS || '30000', 10);
 
 @Injectable()
 export class DocumentsService {
@@ -301,7 +303,7 @@ export class DocumentsService {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(600_000),
+          signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
         });
 
         if (response.status === 502 || response.status === 503 || response.status === 504) {
@@ -351,11 +353,15 @@ export class DocumentsService {
           );
         }
 
-        return await this.docQueue.add(
+        const enqueuePromise = this.docQueue.add(
           'process-document',
           { documentId, organizationId, s3Bucket, s3Key, userId },
           { jobId },
         );
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Queue enqueue timed out')), QUEUE_ENQUEUE_TIMEOUT_MS);
+        });
+        return await Promise.race([enqueuePromise, timeoutPromise]);
       } catch (error: any) {
         lastError = error;
         const code = error?.code || error?.cause?.code;
